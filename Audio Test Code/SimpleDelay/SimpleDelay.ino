@@ -27,10 +27,10 @@ void setup() {
   Serial.begin(9600);
   AudioMemory(160);
   sgtl5000_1.enable();
-  sgtl5000_1.volume(0.6);
+  sgtl5000_1.volume(.5);
   sgtl5000_1.inputSelect(AUDIO_INPUT_MIC);
   sgtl5000_1.micGain(36);
-  delay1.delay(0, 400);
+  delay1.delay(0, 1000);
   //delay1.delay(1, 400);
   //delay1.delay(2, 400);
   //delay1.delay(3, 400);

@@ -40,7 +40,7 @@ void setup() {
   Serial.begin(9600);
   AudioMemory(8);
   sgtl5000_1.enable();
-  sgtl5000_1.volume(0.5);
+  sgtl5000_1.volume(0.8);
   SPI.setMOSI(SDCARD_MOSI_PIN);
   SPI.setSCK(SDCARD_SCK_PIN);
   if (!(SD.begin(SDCARD_CS_PIN))) {
@@ -55,8 +55,9 @@ void setup() {
 void loop() {
   if (playSdWav1.isPlaying() == false) {
     Serial.println("Start playing");
-    playSdWav1.play("SDTEST2.WAV");
+    playSdWav1.play("click.wav");
     delay(10); // wait for library to parse WAV info
   }
   // do nothing while playing...
+  delay(500);
 }
