@@ -18,6 +18,8 @@
  included in any redistribution.
  **************************************************************************/
 
+#include "SoftwareSerial.h"
+#include <SD.h>
 #include <SPI.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
@@ -31,7 +33,7 @@
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 #define NUMFLAKES     10 // Number of snowflakes in the animation example
-
+#define RIGHT_ARROW   16
 #define LOGO_HEIGHT   16
 #define LOGO_WIDTH    16
 static const unsigned char PROGMEM logo_bmp[] =
@@ -52,7 +54,14 @@ static const unsigned char PROGMEM logo_bmp[] =
   B01110000, B01110000,
   B00000000, B00110000 };
 
+  SoftwareSerial XBee(33, 34);
+  uint8_t count = 255;
+   char vol = 100;
+  char bpm = 40;
 void setup() {
+  pinMode(13,OUTPUT);
+  pinMode(35,OUTPUT);
+  XBee.begin(115200);
   Serial.begin(9600);
 
   // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
@@ -63,60 +72,70 @@ void setup() {
 
   // Show initial display buffer contents on the screen --
   // the library initializes this with an Adafruit splash screen.
+  display.clearDisplay();
   display.display();
   delay(2000); // Pause for 2 seconds
 
   // Clear the buffer
-  display.clearDisplay();
-
+  
+ 
+  
   // Draw a single pixel in white
-  display.drawPixel(10, 10, WHITE);
-
-  // Show the display buffer on the screen. You MUST call display() after
-  // drawing commands to make them visible on screen!
+  
+//  display.drawPixel(10, 10, WHITE);
+//
+//  // Show the display buffer on the screen. You MUST call display() after
+//  // drawing commands to make them visible on screen!
   display.display();
-  delay(2000);
+//  delay(2000);
   // display.display() is NOT necessary after every single drawing command,
   // unless that's what you want...rather, you can batch up a bunch of
   // drawing operations and then update the screen all at once by calling
   // display.display(). These examples demonstrate both approaches...
 
-  testdrawline();      // Draw many lines
+//  testdrawline();      // Draw many lines
+//
+//  testdrawrect();      // Draw rectangles (outlines)
+//
+//  testfillrect();      // Draw rectangles (filled)
+//
+//  testdrawcircle();    // Draw circles (outlines)
+//
+//  testfillcircle();    // Draw circles (filled)
+//
+//  testdrawroundrect(); // Draw rounded rectangles (outlines)
+//
+//  testfillroundrect(); // Draw rounded rectangles (filled)
+//
+//  testdrawtriangle();  // Draw triangles (outlines)
+//
+//  testfilltriangle();  // Draw triangles (filled)
+//
+//  testdrawchar();      // Draw characters of the default font
+//
+//  testdrawstyles();    // Draw 'stylized' characters
+//
+//  testscrolltext();    // Draw scrolling text
 
-  testdrawrect();      // Draw rectangles (outlines)
+//  testdrawbitmap();    // Draw a small bitmap image
 
-  testfillrect();      // Draw rectangles (filled)
-
-  testdrawcircle();    // Draw circles (outlines)
-
-  testfillcircle();    // Draw circles (filled)
-
-  testdrawroundrect(); // Draw rounded rectangles (outlines)
-
-  testfillroundrect(); // Draw rounded rectangles (filled)
-
-  testdrawtriangle();  // Draw triangles (outlines)
-
-  testfilltriangle();  // Draw triangles (filled)
-
-  testdrawchar();      // Draw characters of the default font
-
-  testdrawstyles();    // Draw 'stylized' characters
-
-  testscrolltext();    // Draw scrolling text
-
-  testdrawbitmap();    // Draw a small bitmap image
-
-  // Invert and restore display, pausing in-between
-  display.invertDisplay(true);
-  delay(1000);
-  display.invertDisplay(false);
-  delay(1000);
-
-  testanimate(logo_bmp, LOGO_WIDTH, LOGO_HEIGHT); // Animate bitmaps
+//  // Invert and restore display, pausing in-between
+//  display.invertDisplay(true);
+//  delay(1000);
+//  display.invertDisplay(false);
+//  delay(1000);
+//
+//  testanimate(logo_bmp, LOGO_WIDTH, LOGO_HEIGHT); // Animate bitmaps
 }
 
 void loop() {
+  digitalWrite(13, HIGH);   // set the LED on
+  delay(100);                  // wait for a second
+  digitalWrite(13, LOW);    // set the LED off
+  delay(100);
+  basic_menu(vol, bpm);
+  bpm++;
+  vol--;
 }
 
 void testdrawline() {
@@ -230,6 +249,38 @@ void testfillcircle(void) {
   delay(2000);
 }
 
+
+void basic_menu(short vol, short bpm) {
+  display.clearDisplay();
+
+  display.setTextSize(0.5);
+  display.setTextColor(WHITE);
+
+  //                x,y
+  display.setCursor(2,2);
+  display.cp437(true);
+
+  String BPM = "BPM:" + String(bpm);
+  display.println(BPM);
+
+  String VOL = "Vol:" + String(vol);
+  display.setCursor(48,2);
+  display.println(VOL);
+
+  display.setCursor(97,2);
+  display.println("Play");
+  display.drawLine(0, 9, 128, 9, WHITE);
+  display.setCursor(122,2);
+  display.write(RIGHT_ARROW);
+  
+//  display.setCursor(100,2);
+//  display.println("REC");
+//  display.drawLine(0, 9, 128, 9, WHITE);
+//  display.setCursor(120,2);
+//  display.write(RIGHT_ARROW);
+  display.display();
+}
+
 void testdrawroundrect(void) {
   display.clearDisplay();
 
@@ -293,21 +344,42 @@ void testdrawchar(void) {
 
   display.setTextSize(1);      // Normal 1:1 pixel scale
   display.setTextColor(WHITE); // Draw white text
-  display.setCursor(0, 0);     // Start at top-left corner
+  display.setCursor(2, 2);     // Start at top-left corner
   display.cp437(true);         // Use full 256 char 'Code Page 437' font
 
   // Not all the characters will fit on the display. This is normal.
   // Library will draw what it can and the rest will be clipped.
-  for(int16_t i=0; i<256; i++) {
-    if(i == '\n') display.write(' ');
-    else          display.write(i);
-  }
+//  display.write(14);
+  display.println(F("Session 1"));
+  display.drawRect(0,0,85 , 11, WHITE);
+
+  display.setCursor(2, 14);
+  display.println(F("Session 2"));
+  display.drawRect(13,12,85 , 23, WHITE);
+
+    display.setCursor(2, 26);
+    display.println(F("Session 3"));
+  display.drawRect(22,24,85 , 35, WHITE);
+//  display.drawLine(0, 9, 30, 9, WHITE);
+//  for(int i=10; i < 20; i++) {
+//    display.write(i);
+//    delay(1000);
+//    display.clearDisplay();
+//    display.println(F("Hello, world!"));
+//  }
+  
+
+//  for(int16_t i=0; i<256; i++) {
+//    if(i == '\n') display.write(' ');
+//    else          display.write(i);
+//  }
 
   display.display();
   delay(2000);
 }
 
 void testdrawstyles(void) {
+
   display.clearDisplay();
 
   display.setTextSize(1);             // Normal 1:1 pixel scale
@@ -390,6 +462,15 @@ void testanimate(const uint8_t *bitmap, uint8_t w, uint8_t h) {
     // Draw each snowflake:
     for(f=0; f< NUMFLAKES; f++) {
       display.drawBitmap(icons[f][XPOS], icons[f][YPOS], bitmap, w, h, WHITE);
+//      analogWrite(35,f*10);
+XBee.write(count);
+  count--;
+    }
+
+    for(int i=0; i < 255; i++)
+    {
+      analogWrite(35,i);
+      delay(50);
     }
 
     display.display(); // Show the display buffer on the screen
