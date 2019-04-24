@@ -13,11 +13,13 @@
 #include <SPI.h>
 #include <SD.h>
 #include <SerialFlash.h>
+#include <Encoder.h>
 
-AudioPlaySdWav           playSdWav1;
+AudioSynthSimpleDrum     drum1;
+//AudioPlaySdWav           playSdWav1;
 AudioOutputI2S           i2s1;
-AudioConnection          patchCord1(playSdWav1, 0, i2s1, 0);
-AudioConnection          patchCord2(playSdWav1, 1, i2s1, 1);
+AudioConnection          patchCord1(drum1, 0, i2s1, 0);
+//AudioConnection          patchCord2(playSdWav1, 1, i2s1, 1);
 AudioControlSGTL5000     sgtl5000_1;
 
 // Use these with the Teensy Audio Shield
@@ -35,12 +37,19 @@ AudioControlSGTL5000     sgtl5000_1;
 //#define SDCARD_MOSI_PIN  11
 //#define SDCARD_SCK_PIN   13
 
+Encoder myEnc(0,2);
+
+void encoderInterrupt() {
+  Serial.println("Encoder Trigger");
+}
+
 
 void setup() {
+  attachInterrupt(0, encoderInterrupt, FALLING);
   Serial.begin(9600);
   AudioMemory(8);
   sgtl5000_1.enable();
-  sgtl5000_1.volume(0.8);
+  sgtl5000_1.volume(1);
   SPI.setMOSI(SDCARD_MOSI_PIN);
   SPI.setSCK(SDCARD_SCK_PIN);
   if (!(SD.begin(SDCARD_CS_PIN))) {
@@ -50,14 +59,35 @@ void setup() {
     }
   }
   delay(1000);
+
+  drum1.frequency(1000);
+  drum1.length(70);
+  drum1.secondMix(0.5);
+  drum1.pitchMod(0.5);
+  
+  myEnc.write(400);
 }
 
+long oldPosition = -999;
+
 void loop() {
-  if (playSdWav1.isPlaying() == false) {
-    Serial.println("Start playing");
-    playSdWav1.play("click.wav");
-    delay(10); // wait for library to parse WAV info
+   long newPosition = myEnc.read();
+  if (newPosition % 4 == 0 && newPosition != oldPosition) {
+    oldPosition = newPosition;
+    Serial.println(newPosition / 4);
   }
+
+  drum1.noteOn();
+  delay(newPosition);
+
+  
+  
+  //if (playSdWav1.isPlaying() == false) {
+    //Serial.println("Start playing");
+    //playSdWav1.play("click.wav");
+    //playSdWav1.play("SDTEST3.WAV");
+    //delay(10); // wait for library to parse WAV info
+  //}
   // do nothing while playing...
-  delay(500);
+
 }
