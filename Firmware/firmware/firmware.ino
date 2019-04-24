@@ -1,4 +1,8 @@
 #include <Time.h>
+#include <SPI.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
 
 #define MENU_HOME           1
 #define MENU_SESSION_SEL    2
@@ -15,6 +19,21 @@
 
 #define SESSION_OPEN      1
 #define SESSION_DELETE    2
+
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+
+#define LEFT                  8
+#define CENTER                4
+#define RIGHT                 2
+#define FAR_RIGHT             1
+#define IS_SEL_LEFT(n)       (!!(n & LEFT))
+#define IS_SEL_CENTER(n)     (!!(n & CENTER))
+#define IS_SEL_RIGHT(n)      (!!(n & RIGHT))
+#define IS_SEL_FAR_RIGHT(n)  (!!(n & FAR_RIGHT))
+
+// Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
+#define OLED_RESET     4 // Reset pin # (or -1 if sharing Arduino reset pin)
 
 // Data Structures
 struct date {
@@ -50,15 +69,17 @@ struct globalConfig {
 };
 
 // Global Variables
-const int leftButton = 2;     // the number of the left button pin
-const int rightButton = 2;    // the number of the right button pin
-const int selectButton = 2;   // the number of the select button pin
-const int backButton = 2;     // the number of the back button pin
+const int leftButton = 16;    // the number of the left button pin
+const int rightButton = 14;   // the number of the right button pin
+const int selectButton = 15;  // the number of the select button pin
+const int backButton = 23;    // the number of the back button pin
 const int clickButton = 2;    // the number of the click button pin
 const int hapticButton = 2;   // the number of the haptic button pin
-const int playrecButton = 2;  // the number of the play/rec button pin
+const int playrecButton = 22; // the number of the play/rec button pin
 
 const int clickLED = 13;      // the number of the click LED
+
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 IntervalTimer beatTimer;
 
@@ -83,8 +104,8 @@ int current_track_id;
 bool session_playing;
 bool track_playing;
 
-bool click_enable;
-bool haptic_enable;
+bool click_enable = false;
+bool haptic_enable = false;
 
 bool play_rec_pressed_flag;
 bool right_pressed_flag;
@@ -94,27 +115,40 @@ bool back_pressed_flag;
 
 // SETUP AND LOOP FUNCTIONS
 void setup() {
+  Serial.begin(9600);
   // initialize pins as inputs:
-  pinMode(leftButton, INPUT);
-  pinMode(rightButton, INPUT);
-  pinMode(selectButton, INPUT);
-  pinMode(backButton, INPUT);
-  pinMode(clickButton, INPUT);
-  pinMode(hapticButton, INPUT);
-  pinMode(playrecButton, INPUT);
+  pinMode(leftButton, INPUT_PULLUP);
+  pinMode(rightButton, INPUT_PULLUP);
+  pinMode(selectButton, INPUT_PULLUP);
+  pinMode(backButton, INPUT_PULLUP);
+  pinMode(clickButton, INPUT_PULLUP);
+  pinMode(hapticButton, INPUT_PULLUP);
+  pinMode(playrecButton, INPUT_PULLUP);
   pinMode(clickLED,OUTPUT);
 
   // initialize beat timer
   beatTimer.begin(sendBeat, (60*pow(10,6))/options.bpm);
 
   // initialize ISRs
-  attachInterrupt(digitalPinToInterrupt(leftButton), leftButton_ISR, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(rightButton), rightButton_ISR, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(selectButton), selectButton_ISR, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(backButton), backButton_ISR, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(clickButton), clickButton_ISR, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(hapticButton), hapticButton_ISR, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(playrecButton), playrecButton_ISR, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(leftButton), leftButton_ISR, RISING);
+  attachInterrupt(digitalPinToInterrupt(rightButton), rightButton_ISR, RISING);
+  attachInterrupt(digitalPinToInterrupt(selectButton), selectButton_ISR, RISING);
+  attachInterrupt(digitalPinToInterrupt(backButton), backButton_ISR, RISING);
+  attachInterrupt(digitalPinToInterrupt(clickButton), clickButton_ISR, RISING);
+  attachInterrupt(digitalPinToInterrupt(hapticButton), hapticButton_ISR, RISING);
+  attachInterrupt(digitalPinToInterrupt(playrecButton), playrecButton_ISR, RISING);
+
+  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3D)) { // Address 0x3D for 128x64
+    Serial.println(F("SSD1306 allocation failed"));
+    for(;;); // Don't proceed, loop forever
+  }
+
+  Serial.println("Program Started");
+
+  // Show initial display buffer contents on the screen --
+  // the library initializes this with an Adafruit splash screen.
+  display.clearDisplay();
+  display.display();
 }
 
 void loop() {
