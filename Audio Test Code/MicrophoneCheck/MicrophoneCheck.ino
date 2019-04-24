@@ -26,8 +26,8 @@ void setup() {
   AudioMemory(8);
   sgtl5000_1.enable();
   sgtl5000_1.volume(0.5);
-  sgtl5000_1.inputSelect(AUDIO_INPUT_MIC);
-  sgtl5000_1.micGain(1000000);
+  sgtl5000_1.inputSelect(AUDIO_INPUT_LINEIN);
+  sgtl5000_1.micGain(36);
   delay(1000);
 }
 

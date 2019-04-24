@@ -14,7 +14,7 @@ void setup() {
   // put your setup code here, to run once:
   pinMode(LED,OUTPUT);
   XBee.begin(115200);
-  beatTimer.begin(sendBeat(), 1000);
+  beatTimer.begin(sendBeat, 1000);
 }
 
 void loop() {
@@ -38,6 +38,3 @@ void sendBeat() {
   digitalWrite(LED,HIGH);
   XBee.write(1);
 }
-
-
-
