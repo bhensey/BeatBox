@@ -4,21 +4,21 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
-#define MENU_HOME           1
-#define MENU_SESSION_SEL    2
-#define MENU_SESSION        3
-#define MENU_SESSION_CONFIG 4
-#define MENU_NEW_SESSION    5
-#define MENU_TRACK_SEL      6
-#define MENU_TRACK_CONFIG   7
-#define MENU_SETTINGS       8
+#define MENU_HOME           0
+#define MENU_SESSION_SEL    1
+#define MENU_SESSION        2
+#define MENU_SESSION_CONFIG 3
+#define MENU_NEW_SESSION    4
+#define MENU_TRACK_SEL      5
+#define MENU_TRACK_CONFIG   6
+#define MENU_SETTINGS       7
 
-#define NEW_SESSION       1
-#define EXISTING_SESSION  2
-#define SETTINGS          3
+#define NEW_SESSION       0
+#define EXISTING_SESSION  1
+#define SETTINGS          2
 
-#define SESSION_OPEN      1
-#define SESSION_DELETE    2
+#define SESSION_OPEN      0
+#define SESSION_DELETE    1
 
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
@@ -35,6 +35,8 @@
 #define IS_SEL_RIGHT(n)      (!!(n & RIGHT))
 #define IS_SEL_FAR_RIGHT(n)  (!!(n & FAR_RIGHT))
 
+#define INTERRUPT_THRESHOLD   200
+
 // Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
 #define OLED_RESET     4 // Reset pin # (or -1 if sharing Arduino reset pin)
 
@@ -50,16 +52,17 @@ struct date {
 
 struct track {
   int ID;
-  bool empty;
+  bool mt;
   bool mute;
-  int length;
+  int duration;
   char filename[];
   //file* file_ptr;
 };
 
 struct session {
+  bool mt;
   int iD;
-  int length;
+  int duration;
   track tracklist[];
   date date_created;
   date last_modified;
@@ -72,34 +75,40 @@ struct globalConfig {
 };
 
 // Global Variables
-const int leftButton = 16;    // the number of the left button pin
-const int rightButton = 14;   // the number of the right button pin
-const int selectButton = 15;  // the number of the select button pin
-const int backButton = 23;    // the number of the back button pin
-const int clickButton = 2;    // the number of the click button pin
-const int hapticButton = 2;   // the number of the haptic button pin
-const int playrecButton = 22; // the number of the play/rec button pin
+const int leftButton = 16;      // the number of the left button pin
+const int rightButton = 14;     // the number of the right button pin
+const int selectButton = 15;    // the number of the select button pin
+const int backButton = 23;      // the number of the back button pin
+const int clickButton = 21;     // the number of the click button pin
+const int hapticButton = 20;    // the number of the haptic button pin
+const int playrecButton = 22;   // the number of the play/rec button pin
 
-const int clickLED = 13;      // the number of the click LED
+const int beatLED = 13;         // the number of the beat indicator LED
+const int clickLED = 1;         // the number of the click enable LED
+const int hapticLED = 2;        // the number of the haptic enable LED
+const int recordingLED = 0;     // the number of the recording indicator LED
+
+static unsigned long last_interrupt_time = 0;
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 IntervalTimer beatTimer;
 
-struct globalConfig statusBar = {85, 50, true};
+struct globalConfig statusBar = {120, 50, true};
 
-int menu_id = 1; // current state of the menu
+int menu_id = 0; // current state of the menu
 
-//int num_sessions; // number of existing sessions
+int num_sessions = 5; // number of existing sessions
 
 //session sessions[num_sessions]; // list of existing sessions
 
-int selected_home_option;
-int selected_setting;
-int selected_session;
-int selected_session_config_option;
-int selected_track;
-int selected_track_option;
+int selected_home_option = 0;
+int selected_setting = 0;
+int selected_session = 1;
+int viewable_sessions[] = {1,2,3};
+int selected_session_config_option = 0;
+int selected_track = 0;
+int selected_track_option = 0;
 
 int current_session_id;
 int current_track_id;
@@ -107,14 +116,15 @@ int current_track_id;
 bool session_playing;
 bool track_playing;
 
+bool beat_LED_enable = false;
 bool click_enable = false;
 bool haptic_enable = false;
 
-bool play_rec_pressed_flag;
-bool right_pressed_flag;
-bool left_pressed_flag;
-bool select_pressed_flag;
-bool back_pressed_flag;
+bool play_rec_pressed_flag = false;
+bool right_pressed_flag = false;
+bool left_pressed_flag = false;
+bool select_pressed_flag = false;
+bool back_pressed_flag = false;
 
 // SETUP AND LOOP FUNCTIONS
 void setup() {
@@ -124,14 +134,19 @@ void setup() {
   pinMode(rightButton, INPUT_PULLUP);
   pinMode(selectButton, INPUT_PULLUP);
   pinMode(backButton, INPUT_PULLUP);
-  pinMode(clickButton, INPUT_PULLUP);
-  pinMode(hapticButton, INPUT_PULLUP);
-  pinMode(playrecButton, INPUT_PULLUP);
+  pinMode(clickButton, INPUT_PULLDOWN);
+  pinMode(hapticButton, INPUT_PULLDOWN);
+  pinMode(playrecButton, INPUT_PULLDOWN);
+  
+  pinMode(beatLED,OUTPUT);
   pinMode(clickLED,OUTPUT);
+  pinMode(hapticLED,OUTPUT);
+  pinMode(recordingLED,OUTPUT);
+
 
   // initialize beat timer
-  beatTimer.begin(sendBeat, (60*pow(10,6))/statusBar.bpm);
-
+  beatTimer.begin(sendBeat, 0.5*(60*pow(10,6))/statusBar.bpm);
+  
   // initialize ISRs
   attachInterrupt(digitalPinToInterrupt(leftButton), leftButton_ISR, FALLING);
   attachInterrupt(digitalPinToInterrupt(rightButton), rightButton_ISR, FALLING);
@@ -152,16 +167,20 @@ void setup() {
 
 void loop() {
   drawStatusBar();
-  Serial.println(menu_id);
   switch (menu_id) {
     case (MENU_HOME):
+      drawHome(selected_home_option);
       // MENU NAVIGATION
       if (right_pressed_flag) {
-        selected_home_option += 1;
+        if (selected_home_option < 2) {
+          selected_home_option += 1;
+        }
         right_pressed_flag = false;
       }
       if (left_pressed_flag) {
-        selected_home_option -= 1;
+        if (selected_home_option > 0) {
+          selected_home_option -= 1;
+        }
         left_pressed_flag = false;
       }
       if (select_pressed_flag) {
@@ -174,8 +193,8 @@ void loop() {
         }
         else if (selected_home_option == SETTINGS) {
           menu_id = MENU_SETTINGS;
-          select_pressed_flag = false;
         }
+        select_pressed_flag = false;
       }
       // OTHER FUNCTIONALITY
       if (play_rec_pressed_flag) {
@@ -186,18 +205,22 @@ void loop() {
       break;
 
     case (MENU_SETTINGS):
+      drawSettings(selected_setting);
       // MENU NAVIGATION
       if (right_pressed_flag) {
-        selected_setting += 1;
+        if (selected_setting < 2) {
+          selected_setting += 1;
+        }
         right_pressed_flag = false;
       }
       if (left_pressed_flag) {
-        selected_setting -= 1;
+        if (selected_setting > 0) {
+          selected_setting -= 1;
+        }
         left_pressed_flag = false;
       }
       if (back_pressed_flag) {
         menu_id = MENU_HOME;
-        selected_home_option = 2;
         back_pressed_flag = false;
       }
       if (select_pressed_flag) {
@@ -215,18 +238,32 @@ void loop() {
       break;
 
     case (MENU_SESSION_SEL):
+      drawSessionSelect(selected_session);
       // MENU NAVIGATION
       if (right_pressed_flag) {
-        selected_session += 1;
+        if (selected_session < num_sessions) {
+          selected_session++;
+        }
+        if (selected_session > viewable_sessions[2]) {
+          viewable_sessions[0]++;
+          viewable_sessions[1]++;
+          viewable_sessions[2]++;
+        }
         right_pressed_flag = false;
       }
       if (left_pressed_flag) {
-        selected_session -= 1;
+        if (selected_session > 1) {
+          selected_session--;
+        }
+        if (selected_session < viewable_sessions[0]) {
+          viewable_sessions[0]--;
+          viewable_sessions[1]--;
+          viewable_sessions[2]--;
+        }
         left_pressed_flag = false;
       }
       if (back_pressed_flag) {
         menu_id = MENU_HOME;
-        selected_home_option = 2;
         back_pressed_flag = false;
       }
       if (select_pressed_flag) {
@@ -244,13 +281,18 @@ void loop() {
       break;
 
     case (MENU_SESSION_CONFIG):
+      drawSessionConfig(selected_session, selected_session_config_option);
       // MENU NAVIGATION
       if (right_pressed_flag) {
-        selected_session_config_option += 1;
+        if (selected_session_config_option < 1) {
+          selected_session_config_option++;
+        }
         right_pressed_flag = false;
       }
       if (left_pressed_flag) {
-        selected_session_config_option -= 1;
+        if (selected_session_config_option > 0) {
+          selected_session_config_option--;
+        }
         left_pressed_flag = false;
       }
       if (back_pressed_flag) {
@@ -359,7 +401,7 @@ void loop() {
   }
 }
 
-// CORE FUNCTIONS
+// DISPLAY FUNCTIONS
 void drawStatusBar() {
   display.clearDisplay();
   display.setTextSize(1);
@@ -389,10 +431,135 @@ void drawStatusBar() {
   display.drawLine(0, 9, 128, 9, WHITE);
 }
 
-void drawScreen() {
-  
+void boxed_text(String text, int x_pos, int y_pos, bool selected) {
+  if(!selected) display.setTextColor(WHITE, BLACK);
+  else display.setTextColor(BLACK,WHITE);
+  int len = text.length();
+  display.setCursor(x_pos, y_pos);
+  display.println(text);
+  display.drawRect(x_pos-2, y_pos-2, len*7, 12, WHITE);
+  display.setTextColor(WHITE, BLACK);
 }
 
+void draw_level(String Name) {
+  display.setCursor(0,11);
+  display.println(Name);
+}
+
+void drawHome(uint8_t selected) {
+  uint8_t highlight = 0x8>>selected;
+  draw_level("Home");
+  boxed_text("New", 10, display.height() / 2 + 10, IS_SEL_LEFT(highlight));
+  boxed_text("Files", 45, display.height() / 2 + 10, IS_SEL_CENTER(highlight));
+  boxed_text("Prefs", 90, display.height() / 2 + 10, IS_SEL_RIGHT(highlight));
+  display.display();
+}
+
+void drawSettings(uint8_t selected) {
+  uint8_t highlight = 0x8>>selected;
+  draw_level("Preferences");
+  boxed_text("Sound", 12, display.height() / 2 + 10, IS_SEL_LEFT(highlight));
+  boxed_text("Reset", 51, display.height() / 2 + 10, IS_SEL_CENTER(highlight));
+  boxed_text("Loop", 91, display.height() / 2 + 10, IS_SEL_RIGHT(highlight));
+  display.display();
+}
+
+void drawSessionSelect(uint8_t selected) {
+  uint8_t highlight = 0x8>>(selected-viewable_sessions[0]);
+  draw_level("Session Select");
+  if (num_sessions == 0) {
+    // no sessions
+  } else if (num_sessions == 1) {
+    String sess_l = "S" + String(viewable_sessions[0]);
+    boxed_text(sess_l, 20, display.height() / 2 - 4, IS_SEL_LEFT(highlight));
+  } else if (num_sessions == 2) {
+    String sess_l = "S" + String(viewable_sessions[0]);
+    String sess_c = "S" + String(viewable_sessions[1]);
+    boxed_text(sess_l, 20, display.height() / 2 - 4, IS_SEL_LEFT(highlight));
+    boxed_text(sess_c, 60, display.height() / 2 - 4, IS_SEL_CENTER(highlight));
+  } else {
+    String sess_l = "S" + String(viewable_sessions[0]);
+    String sess_c = "S" + String(viewable_sessions[1]);
+    String sess_r = "S" + String(viewable_sessions[2]);
+    boxed_text(sess_l, 20, display.height() / 2 - 4, IS_SEL_LEFT(highlight));
+    boxed_text(sess_c, 60, display.height() / 2 - 4, IS_SEL_CENTER(highlight));
+    boxed_text(sess_r, 100, display.height() / 2 - 4, IS_SEL_RIGHT(highlight));
+  }
+  if(viewable_sessions[0] > 1) { // left arrow
+    display.setCursor(2,display.height() / 2 - 4);
+    display.write(LEFT_ARROW);
+  }
+  if(viewable_sessions[2] < num_sessions) { // right arrow
+    display.setCursor(122,display.height() / 2 - 4);
+    display.write(RIGHT_ARROW);
+  }
+  
+  display.display();
+}
+
+void drawSessionConfig(int session_number, bool highlight) {
+  draw_level("Session Config");
+  String sess = "S" + String(session_number); 
+  boxed_text(sess, display.width() / 2 - 10, display.height() / 2 - 4, false);
+  boxed_text("Open", 25, display.height() / 2 + 10, !highlight);
+  int posn_x = 67;
+  if(sess.length() > 2) posn_x = 74;
+  boxed_text("Delete", posn_x, display.height() / 2 + 10, highlight);
+  display.display();
+}
+
+void drawTrackSelect(uint8_t existing_tracks, uint8_t highlight) {
+  draw_level("Track Select");
+  String track_dne = " + ";
+  if(IS_SEL_LEFT(existing_tracks)) {
+    boxed_text("T1", 10, display.height() - 20, IS_SEL_LEFT(highlight));
+  } else {
+    boxed_text(track_dne, 10, display.height() - 20, IS_SEL_LEFT(highlight));
+  }
+
+  if(IS_SEL_CENTER(existing_tracks)) {
+     boxed_text("T2", 40, display.height() - 20, IS_SEL_CENTER(highlight));
+  } else {
+     boxed_text(track_dne, 40, display.height() - 20, IS_SEL_CENTER(highlight));
+  }
+
+  if(IS_SEL_RIGHT(existing_tracks)) {
+     boxed_text("T3", 70, display.height() - 20, IS_SEL_RIGHT(highlight));
+  } else {
+     boxed_text(track_dne, 70, display.height() - 20, IS_SEL_RIGHT(highlight));
+  }
+
+  if(IS_SEL_FAR_RIGHT(existing_tracks)) {
+     boxed_text("T4", 100, display.height() - 20, IS_SEL_FAR_RIGHT(highlight));
+  } else {
+     boxed_text(track_dne, 100, display.height() - 20, IS_SEL_FAR_RIGHT(highlight));
+  }
+  
+  display.display();
+}
+
+void drawTrackOptions(uint8_t track_no, uint8_t highlight) {
+  draw_level("Track Options");
+  String track = "T" + String(track_no);
+  boxed_text(track, display.width() / 2 - 10, display.height() - 25, false);
+  boxed_text("Mute", 25, display.height() - 10, IS_SEL_LEFT(highlight));
+  int posn_x = 67; 
+  if(track.length() > 2) posn_x = 74;
+  boxed_text("Delete", posn_x, display.height() - 10, IS_SEL_RIGHT(highlight));
+  display.display();
+}
+
+void drawStorageLimit() {
+  display.clearDisplay();
+  display.setCursor(display.width()/2-20, 0);
+  display.println("Warning!");
+  display.setCursor(2,13);
+  display.println("Storage Limit Reached\nLess than 100MB free.\nDelete or export\ncontent.");
+  display.drawRect(0, 11, 128, 50, WHITE);
+  display.display();
+}
+
+// CORE FUNCTIONS
 void newSession() {
 
 }
@@ -450,9 +617,40 @@ void enterSetting() {
 }
 
 // Interrupt Service Routines
+void debounce_normal(bool &flag, String message) {
+  unsigned long interrupt_time = millis();
+  if (interrupt_time - last_interrupt_time > INTERRUPT_THRESHOLD) 
+  {
+   flag = true;
+   Serial.println(message);
+  }
+  last_interrupt_time = interrupt_time;
+}
+
+void debounce_toggle(bool& flag, int pin, String message) {
+  unsigned long interrupt_time = millis();
+  if(interrupt_time - last_interrupt_time > INTERRUPT_THRESHOLD) {
+    flag = !flag;
+    if (flag) {
+      digitalWrite(pin,HIGH);
+      Serial.println(message + "->on");
+    } else {
+      digitalWrite(pin,LOW);
+      Serial.println(message + "->off");
+    }
+  }
+  last_interrupt_time = interrupt_time;
+}
+
 void sendBeat() {
   // blink LED
-  digitalWrite(clickLED,HIGH);
+  if (beat_LED_enable) {
+     digitalWrite(beatLED,LOW);
+     beat_LED_enable = false;
+  } else {
+     digitalWrite(beatLED,HIGH);
+     beat_LED_enable = true;
+  }
   // conditionally send click
   // conditionally send pulse to haptic
 }
@@ -464,30 +662,23 @@ void changeVol() {
   // update statusBar.volume with new value
 }
 void leftButton_ISR() {
-  Serial.println("Left button pressed");
-  left_pressed_flag = true;
+  debounce_normal(left_pressed_flag, "Left button pressed");
 }
 void rightButton_ISR() {
-  Serial.println("Right button pressed");
-  right_pressed_flag = true;
+  debounce_normal(right_pressed_flag, "Right button pressed");
 }
 void selectButton_ISR() {
-  Serial.println("Select button pressed");
-  select_pressed_flag = true;
+  debounce_normal(select_pressed_flag, "Select button pressed");
 }
 void backButton_ISR() {
-  Serial.println("Back button pressed");
-  back_pressed_flag = true;
-}
-void clickButton_ISR() {
-  Serial.println("Click button pressed");
-  click_enable = !click_enable;
-}
-void hapticButton_ISR() {
-  Serial.println("Haptic button pressed");
-  haptic_enable = !haptic_enable;
+  debounce_normal(back_pressed_flag, "Back button pressed");
 }
 void playrecButton_ISR() {
-  Serial.println("Play/rec button pressed");
-  play_rec_pressed_flag = true;
+  debounce_normal(play_rec_pressed_flag, "Play/rec button pressed");
+}
+void clickButton_ISR() {
+  debounce_toggle(click_enable, clickLED, "Click button pressed");
+}
+void hapticButton_ISR() {
+  debounce_toggle(haptic_enable, hapticLED, "Haptic button pressed");
 }
