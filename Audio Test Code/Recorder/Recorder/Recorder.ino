@@ -38,6 +38,92 @@ AudioControlSGTL5000     sgtl5000_1;     //xy=265,212
 // https://github.com/WMXZ-EU/microSoundRecorder/wiki/Hardware-setup
 // https://forum.pjrc.com/threads/52175?p=185386&viewfull=1#post185386
 
+// CUSTOM FUNCTIONS (using global variables)
+
+int session = 23;
+
+void getTrackFilepath(int trackNumber) {
+  // Use global variable selected_session
+  // session/track.wav
+  String fileString = "Sessions/";
+  fileString += session;
+  fileString += "/";
+  fileString += trackNumber;
+  fileString += ".wav";
+  char filename[50];
+  fileString.toCharArray(filename, 50);
+  
+  Serial.println(filename);
+}
+
+bool fileExists(char dir[]) {
+  
+  if (SD.exists(dir)) {
+    return 1;
+  }
+  else {
+    return 0;
+  } 
+}
+
+int existingSessions() {
+  // Scan SD card and return an array of every existing session in order
+}
+
+void createSession(int sessionNumber) {
+  String fileString = "Sessions/";
+  fileString += sessionNumber;
+  char filename[50];
+  fileString.toCharArray(filename, 50);
+  SD.mkdir(filename);
+  if (fileExists(filename)) {
+    Serial.printf("%s is created \n", filename);
+  }
+  else {
+    Serial.printf("Error creating %s\n", filename);
+  }
+}
+
+void deleteSession(int sessionNumber) {
+  String fileString = "Sessions/";
+  fileString += sessionNumber;
+  char filename[50];
+  fileString.toCharArray(filename, 50);
+  SD.rmdir(filename);
+  if (! fileExists(filename)){
+    Serial.printf("Directory %s is removed\n", filename);
+  }
+  else {
+    Serial.printf("ERROR: The session %s was not removed\n", filename);
+  }
+}
+
+void printDirectory(File dir, int numTabs) {
+  while (true) {
+
+    File entry =  dir.openNextFile();
+    if (! entry) {
+      // no more files  
+      break;
+    }
+    for (uint8_t i = 0; i < numTabs; i++) {
+      Serial.print('\t');
+    }
+    Serial.print(entry.name());
+    if (entry.isDirectory()) {
+      Serial.println("/");
+      printDirectory(entry, numTabs + 1);
+    } else {
+      // files have sizes, directories do not
+      Serial.print("\t\t");
+      Serial.println(entry.size(), DEC);
+    }
+    entry.close();
+  }
+}
+
+
+
 // Bounce objects to easily and reliably read the buttons
 Bounce buttonRecord = Bounce(0, 8);
 Bounce buttonStop =   Bounce(1, 8);  // 8 = 8 ms debounce time
@@ -54,24 +140,17 @@ const int myInput = AUDIO_INPUT_LINEIN;
 #define SDCARD_MOSI_PIN  7
 #define SDCARD_SCK_PIN   14
 
-// Use these with the Teensy 3.5 & 3.6 SD card
-//#define SDCARD_CS_PIN    BUILTIN_SDCARD
-//#define SDCARD_MOSI_PIN  11  // not actually used
-//#define SDCARD_SCK_PIN   13  // not actually used
-
-// Use these for the SD+Wiz820 or other adaptors
-//#define SDCARD_CS_PIN    4
-//#define SDCARD_MOSI_PIN  11
-//#define SDCARD_SCK_PIN   13
-
-
 // Remember which mode we're doing
 int mode = 0;  // 0=stopped, 1=recording, 2=playing
 
 // The file where data is recorded
 File frec;
 
+File root;
 void setup() {
+ 
+    
+  
   // Configure the pushbutton pins
   pinMode(0, INPUT_PULLUP);
   pinMode(1, INPUT_PULLUP);
@@ -96,6 +175,19 @@ void setup() {
       delay(500);
     }
   }
+  
+
+   // Test Code
+    createSession(3);
+    createSession(5);
+    createSession(23);
+    deleteSession(5);
+
+    root = SD.open("Sessions");
+    printDirectory(root, 1);
+    root.rewindDirectory();
+    root.close();
+  
 }
 
 
