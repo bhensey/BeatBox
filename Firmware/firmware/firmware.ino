@@ -23,6 +23,9 @@
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 
+#define RIGHT_ARROW   16
+#define LEFT_ARROW    17
+
 #define LEFT                  8
 #define CENTER                4
 #define RIGHT                 2
@@ -65,7 +68,7 @@ struct session {
 struct globalConfig {
   int bpm;
   int volume;
-  bool play_rec;  // indicates what pressing the play/rec button will do
+  bool play_rec;  // indicates what pressing the play/rec button will do (0=play, 1=rec)
 };
 
 // Global Variables
@@ -83,9 +86,9 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 IntervalTimer beatTimer;
 
-struct globalConfig options = {85, 50, true};
+struct globalConfig statusBar = {85, 50, true};
 
-int menu_id; // current state of the menu
+int menu_id = 1; // current state of the menu
 
 //int num_sessions; // number of existing sessions
 
@@ -127,32 +130,29 @@ void setup() {
   pinMode(clickLED,OUTPUT);
 
   // initialize beat timer
-  beatTimer.begin(sendBeat, (60*pow(10,6))/options.bpm);
+  beatTimer.begin(sendBeat, (60*pow(10,6))/statusBar.bpm);
 
   // initialize ISRs
-  attachInterrupt(digitalPinToInterrupt(leftButton), leftButton_ISR, RISING);
-  attachInterrupt(digitalPinToInterrupt(rightButton), rightButton_ISR, RISING);
-  attachInterrupt(digitalPinToInterrupt(selectButton), selectButton_ISR, RISING);
-  attachInterrupt(digitalPinToInterrupt(backButton), backButton_ISR, RISING);
-  attachInterrupt(digitalPinToInterrupt(clickButton), clickButton_ISR, RISING);
-  attachInterrupt(digitalPinToInterrupt(hapticButton), hapticButton_ISR, RISING);
-  attachInterrupt(digitalPinToInterrupt(playrecButton), playrecButton_ISR, RISING);
+  attachInterrupt(digitalPinToInterrupt(leftButton), leftButton_ISR, FALLING);
+  attachInterrupt(digitalPinToInterrupt(rightButton), rightButton_ISR, FALLING);
+  attachInterrupt(digitalPinToInterrupt(selectButton), selectButton_ISR, FALLING);
+  attachInterrupt(digitalPinToInterrupt(backButton), backButton_ISR, FALLING);
+  attachInterrupt(digitalPinToInterrupt(clickButton), clickButton_ISR, FALLING);
+  attachInterrupt(digitalPinToInterrupt(hapticButton), hapticButton_ISR, FALLING);
+  attachInterrupt(digitalPinToInterrupt(playrecButton), playrecButton_ISR, FALLING);
 
   if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3D)) { // Address 0x3D for 128x64
     Serial.println(F("SSD1306 allocation failed"));
     for(;;); // Don't proceed, loop forever
   }
 
-  Serial.println("Program Started");
-
-  // Show initial display buffer contents on the screen --
-  // the library initializes this with an Adafruit splash screen.
   display.clearDisplay();
   display.display();
 }
 
 void loop() {
-  drawScreen();
+  drawStatusBar();
+  Serial.println(menu_id);
   switch (menu_id) {
     case (MENU_HOME):
       // MENU NAVIGATION
@@ -360,6 +360,35 @@ void loop() {
 }
 
 // CORE FUNCTIONS
+void drawStatusBar() {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  
+  //                x,y
+  display.setCursor(2,2);
+  display.cp437(true);
+  
+  String BPM = "BPM:" + String(statusBar.bpm);
+  display.println(BPM);
+  
+  String VOL = "Vol:" + String(statusBar.volume);
+  display.setCursor(48,2);
+  display.println(VOL);
+
+  if(!statusBar.play_rec) {
+    display.setCursor(100,2);
+    display.println("REC");
+  } else {
+    display.setCursor(97,2);
+    display.println("Play");
+  }
+
+  display.setCursor(122,2);
+  display.write(RIGHT_ARROW);
+  display.drawLine(0, 9, 128, 9, WHITE);
+}
+
 void drawScreen() {
   
 }
@@ -428,11 +457,11 @@ void sendBeat() {
   // conditionally send pulse to haptic
 }
 void changeBPM() {
-  // update options.bpm with new value
-  beatTimer.update((60*pow(10,6))/options.bpm);
+  // update statusBar.bpm with new value
+  beatTimer.update((60*pow(10,6))/statusBar.bpm);
 }
 void changeVol() {
-  // update options.volume with new value
+  // update statusBar.volume with new value
 }
 void leftButton_ISR() {
   Serial.println("Left button pressed");
