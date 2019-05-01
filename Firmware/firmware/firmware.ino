@@ -74,6 +74,15 @@ struct globalConfig {
   bool play_rec;  // indicates what pressing the play/rec button will do (0=play, 1=rec)
 };
 
+enum SessionState {
+  Valid,
+  Deleted,
+  End
+};
+
+
+
+
 // Global Variables
 const int leftButton = 16;      // the number of the left button pin
 const int rightButton = 14;     // the number of the right button pin
@@ -94,17 +103,19 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 IntervalTimer beatTimer;
 
-struct globalConfig statusBar = {120, 50, true};
+struct globalConfig statusBar = {120, 50, false};
 
 int menu_id = 0; // current state of the menu
 
-int num_sessions = 5; // number of existing sessions
+int num_sessions = 0; // number of existing sessions
+
+SessionState sessions[100];
 
 //session sessions[num_sessions]; // list of existing sessions
 
 int selected_home_option = 0;
 int selected_setting = 0;
-int selected_session = 1;
+int selected_session = 0;
 int viewable_sessions[] = {1,2,3};
 int selected_session_config_option = 0;
 int selected_track = 0;
@@ -185,8 +196,10 @@ void loop() {
       }
       if (select_pressed_flag) {
         // either create new session, show existing sessions, or go to settings
-        if (selected_home_option == NEW_SESSION) {
+        if (selected_home_option == NEW_SESSION) {  
+          menu_id = MENU_SESSION_CONFIG;
           newSession();
+          selected_session++;
         }
         else if (selected_home_option == EXISTING_SESSION) {
           menu_id = MENU_SESSION_SEL;
@@ -455,6 +468,13 @@ void drawHome(uint8_t selected) {
   display.display();
 }
 
+void centerText(String text, int y_pos) {
+  int len = text.length();
+  int num_px = len*6;
+  display.setCursor(SCREEN_WIDTH/2 - num_px/2,y_pos);
+  display.println(text);
+}
+
 void drawSettings(uint8_t selected) {
   uint8_t highlight = 0x8>>selected;
   draw_level("Preferences");
@@ -484,18 +504,24 @@ void drawSessionSelect(uint8_t selected) {
     boxed_text(sess_l, 20, display.height() / 2 - 4, IS_SEL_LEFT(highlight));
     boxed_text(sess_c, 60, display.height() / 2 - 4, IS_SEL_CENTER(highlight));
     boxed_text(sess_r, 100, display.height() / 2 - 4, IS_SEL_RIGHT(highlight));
+
   }
   if(viewable_sessions[0] > 1) { // left arrow
     display.setCursor(2,display.height() / 2 - 4);
     display.write(LEFT_ARROW);
+    
   }
   if(viewable_sessions[2] < num_sessions) { // right arrow
     display.setCursor(122,display.height() / 2 - 4);
     display.write(RIGHT_ARROW);
   }
-  
+
+  centerText("ssssssssss", 40);
+    
   display.display();
 }
+
+
 
 void drawSessionConfig(int session_number, bool highlight) {
   draw_level("Session Config");
@@ -561,6 +587,7 @@ void drawStorageLimit() {
 
 // CORE FUNCTIONS
 void newSession() {
+  num_sessions++;
 
 }
 
@@ -656,7 +683,7 @@ void sendBeat() {
 }
 void changeBPM() {
   // update statusBar.bpm with new value
-  beatTimer.update((60*pow(10,6))/statusBar.bpm);
+//  beatTimer.update((60*pow(10,6))/statusBar.bpm);
 }
 void changeVol() {
   // update statusBar.volume with new value
