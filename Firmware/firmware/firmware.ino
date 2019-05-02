@@ -51,21 +51,24 @@ struct date {
 };
 
 struct track {
-  int ID;
+  int number;
   bool mt;
   bool mute;
   int duration;
-  char filename[];
-  //file* file_ptr;
+  String filename;
 };
 
 struct session {
-  bool mt;
-  int iD;
+  String session_name;
   int duration;
   track tracklist[];
   date date_created;
   date last_modified;
+};
+
+struct sessionView {
+  String session_name;
+  //date last_modified;
 };
 
 struct globalConfig {
@@ -79,8 +82,6 @@ enum SessionState {
   Deleted,
   End
 };
-
-
 
 
 // Global Variables
@@ -105,24 +106,22 @@ IntervalTimer beatTimer;
 
 struct globalConfig statusBar = {120, 50, false};
 
-int menu_id = 0; // current state of the menu
+int menu_id; // current state of the menu
 
-int num_sessions = 0; // number of existing sessions
+int num_sessions; // number of existing sessions
 
-SessionState sessions[100];
+sessionView sessions[99]; // empty list of sessions
 
-//session sessions[num_sessions]; // list of existing sessions
+session current_session; // current session we're in
 
+// menu selection global variables
 int selected_home_option = 0;
 int selected_setting = 0;
 int selected_session = 0;
-int viewable_sessions[] = {1,2,3};
+int viewable_sessions[] = {0,1,2};
 int selected_session_config_option = 0;
 int selected_track = 0;
 int selected_track_option = 0;
-
-int current_session_id;
-int current_track_id;
 
 bool session_playing;
 bool track_playing;
@@ -154,7 +153,6 @@ void setup() {
   pinMode(hapticLED,OUTPUT);
   pinMode(recordingLED,OUTPUT);
 
-
   // initialize beat timer
   beatTimer.begin(sendBeat, 0.5*(60*pow(10,6))/statusBar.bpm);
   
@@ -174,12 +172,17 @@ void setup() {
 
   display.clearDisplay();
   display.display();
+
+  // get session information from SD card
+  num_sessions = getSessionOverview(sessions); // populates list of sessions, returns the number of sessions
+
+  menu_id = 0;
 }
 
 void loop() {
   drawStatusBar();
   switch (menu_id) {
-    case (MENU_HOME):
+    case (MENU_HOME):                               // HOME
       drawHome(selected_home_option);
       // MENU NAVIGATION
       if (right_pressed_flag) {
@@ -199,7 +202,8 @@ void loop() {
         if (selected_home_option == NEW_SESSION) {  
           menu_id = MENU_SESSION_CONFIG;
           newSession();
-          selected_session++;
+          selected_session = num_sessions + 1; // this could be done in newSession() if we want
+          // ADD A NEW SESSION TO MEMORY (TODO)
         }
         else if (selected_home_option == EXISTING_SESSION) {
           menu_id = MENU_SESSION_SEL;
@@ -217,7 +221,7 @@ void loop() {
       }
       break;
 
-    case (MENU_SETTINGS):
+    case (MENU_SETTINGS):                               // SETTINGS
       drawSettings(selected_setting);
       // MENU NAVIGATION
       if (right_pressed_flag) {
@@ -250,11 +254,11 @@ void loop() {
       }
       break;
 
-    case (MENU_SESSION_SEL):
+    case (MENU_SESSION_SEL):                               // SESSION SELECT
       drawSessionSelect(selected_session);
       // MENU NAVIGATION
       if (right_pressed_flag) {
-        if (selected_session < num_sessions) {
+        if (selected_session < num_sessions-1) {
           selected_session++;
         }
         if (selected_session > viewable_sessions[2]) {
@@ -265,7 +269,7 @@ void loop() {
         right_pressed_flag = false;
       }
       if (left_pressed_flag) {
-        if (selected_session > 1) {
+        if (selected_session > 0) {
           selected_session--;
         }
         if (selected_session < viewable_sessions[0]) {
@@ -293,7 +297,7 @@ void loop() {
       }
       break;
 
-    case (MENU_SESSION_CONFIG):
+    case (MENU_SESSION_CONFIG):                               // SESSION CONFIG
       drawSessionConfig(selected_session, selected_session_config_option);
       // MENU NAVIGATION
       if (right_pressed_flag) {
@@ -333,7 +337,7 @@ void loop() {
       }
       break;
 
-    case (MENU_TRACK_SEL):
+    case (MENU_TRACK_SEL):                               // TRACK SELECT
       // MENU NAVIGATION
       if (right_pressed_flag) {
         selected_track += 1;
@@ -370,7 +374,7 @@ void loop() {
       }
       break;
 
-    case (MENU_TRACK_CONFIG):
+    case (MENU_TRACK_CONFIG):                               // TRACK CONFIG
       // MENU NAVIGATION
       if (right_pressed_flag) {
         selected_track_option += 1;
@@ -490,42 +494,38 @@ void drawSessionSelect(uint8_t selected) {
   if (num_sessions == 0) {
     // no sessions
   } else if (num_sessions == 1) {
-    String sess_l = "S" + String(viewable_sessions[0]);
+    String sess_l = "S" + String(viewable_sessions[0]+1);
     boxed_text(sess_l, 20, display.height() / 2 - 4, IS_SEL_LEFT(highlight));
   } else if (num_sessions == 2) {
-    String sess_l = "S" + String(viewable_sessions[0]);
-    String sess_c = "S" + String(viewable_sessions[1]);
+    String sess_l = "S" + String(viewable_sessions[0]+1);
+    String sess_c = "S" + String(viewable_sessions[1]+1);
     boxed_text(sess_l, 20, display.height() / 2 - 4, IS_SEL_LEFT(highlight));
     boxed_text(sess_c, 60, display.height() / 2 - 4, IS_SEL_CENTER(highlight));
   } else {
-    String sess_l = "S" + String(viewable_sessions[0]);
-    String sess_c = "S" + String(viewable_sessions[1]);
-    String sess_r = "S" + String(viewable_sessions[2]);
+    String sess_l = "S" + String(viewable_sessions[0]+1);
+    String sess_c = "S" + String(viewable_sessions[1]+1);
+    String sess_r = "S" + String(viewable_sessions[2]+1);
     boxed_text(sess_l, 20, display.height() / 2 - 4, IS_SEL_LEFT(highlight));
     boxed_text(sess_c, 60, display.height() / 2 - 4, IS_SEL_CENTER(highlight));
     boxed_text(sess_r, 100, display.height() / 2 - 4, IS_SEL_RIGHT(highlight));
-
   }
-  if(viewable_sessions[0] > 1) { // left arrow
+  if(viewable_sessions[0] > 0) { // left arrow
     display.setCursor(2,display.height() / 2 - 4);
     display.write(LEFT_ARROW);
     
   }
-  if(viewable_sessions[2] < num_sessions) { // right arrow
+  if(viewable_sessions[2] < num_sessions-1) { // right arrow
     display.setCursor(122,display.height() / 2 - 4);
     display.write(RIGHT_ARROW);
   }
 
-  centerText("ssssssssss", 40);
-    
+  centerText(sessions[selected_session].session_name, 40);
   display.display();
 }
 
-
-
 void drawSessionConfig(int session_number, bool highlight) {
   draw_level("Session Config");
-  String sess = "S" + String(session_number); 
+  String sess = "S" + String(session_number+1); 
   boxed_text(sess, display.width() / 2 - 10, display.height() / 2 - 4, false);
   boxed_text("Open", 25, display.height() / 2 + 10, !highlight);
   int posn_x = 67;
@@ -586,8 +586,17 @@ void drawStorageLimit() {
 }
 
 // CORE FUNCTIONS
+int getSessionOverview(sessionView sessions_list[]) {
+  // currently creates a dummy list of 5 sessions
+  String s = "Session ";
+  String n;
+  for (int i = 0; i < 5; i++) {
+    n = s + (i+1);
+    sessions_list[i] = {n};
+  }
+  return 5;
+}
 void newSession() {
-  num_sessions++;
 
 }
 
