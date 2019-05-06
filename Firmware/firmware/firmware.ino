@@ -1,8 +1,40 @@
 #include <Time.h>
 #include <SPI.h>
 #include <Wire.h>
+#include <Audio.h>
+#include <SD.h>
+#include <SerialFlash.h>
+#include <Encoder.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include "AudioSampleKick.h"         // http://www.freesound.org/people/DWSD/sounds/171104/
+#include "AudioSampleMetronome.h"
+
+// GUItool: begin automatically generated code
+AudioPlayMemory          playMem1;       //xy=231.25390625,356.50390434265137
+AudioPlaySdWav           playSdWav3;     //xy=233.25390625,249.50390148162842
+AudioPlaySdWav           playSdWav2;     //xy=234.25391006469727,199.50391674041748
+AudioPlaySdWav           playSdWav4;     //xy=234.2539176940918,301.50392723083496
+AudioPlaySdWav           playSdWav1;     //xy=235.25390625,149.50390625
+AudioMixer4              mixer1;         //xy=437.50390625,249.50391578674316
+AudioMixer4              mixer2;         //xy=439.25392150878906,332.50392150878906
+AudioMixer4              mixer3;         //xy=583.2538986206055,282.50390625
+AudioOutputI2S           i2s1;           //xy=719.2539520263672,287.5039463043213
+AudioConnection          patchCord1(playMem1, 0, mixer2, 0);
+AudioConnection          patchCord2(playSdWav3, 0, mixer1, 2);
+AudioConnection          patchCord3(playSdWav2, 0, mixer1, 1);
+AudioConnection          patchCord4(playSdWav4, 0, mixer1, 3);
+AudioConnection          patchCord5(playSdWav1, 0, mixer1, 0);
+AudioConnection          patchCord6(mixer1, 0, mixer3, 0);
+AudioConnection          patchCord7(mixer2, 0, mixer3, 1);
+AudioConnection          patchCord8(mixer3, 0, i2s1, 0);
+AudioControlSGTL5000     sgtl5000_1;     //xy=252,427
+// GUItool: end automatically generated code
+
+// Use these with the Teensy Audio Shield
+#define SDCARD_CS_PIN    10
+#define SDCARD_MOSI_PIN  7
+#define SDCARD_SCK_PIN   14
 
 #define MENU_HOME           0
 #define MENU_SESSION_SEL    1
@@ -38,7 +70,7 @@
 #define INTERRUPT_THRESHOLD   200
 
 // Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
-#define OLED_RESET     4 // Reset pin # (or -1 if sharing Arduino reset pin)
+#define OLED_RESET     5 // Reset pin # (or -1 if sharing Arduino reset pin)
 
 // Data Structures
 struct date {
@@ -73,7 +105,7 @@ struct sessionView {
 
 struct globalConfig {
   int bpm;
-  int volume;
+  int vol;
   bool play_rec;  // indicates what pressing the play/rec button will do (0=play, 1=rec)
 };
 
@@ -86,12 +118,17 @@ enum SessionState {
 
 // Global Variables
 const int leftButton = 16;      // the number of the left button pin
-const int rightButton = 14;     // the number of the right button pin
-const int selectButton = 15;    // the number of the select button pin
-const int backButton = 23;      // the number of the back button pin
-const int clickButton = 21;     // the number of the click button pin
-const int hapticButton = 20;    // the number of the haptic button pin
-const int playrecButton = 22;   // the number of the play/rec button pin
+const int rightButton = 15;     // the number of the right button pin
+const int selectButton = 14;    // the number of the select button pin
+const int backButton = 35;      // the number of the back button pin
+const int clickButton = 37;     // the number of the click button pin
+const int hapticButton = 36;    // the number of the haptic button pin
+const int playrecButton = 38;   // the number of the play/rec button pin
+
+const int BPMPin1 = 29;         // the number of the right BPM encoder pin
+const int BPMPin2 = 30;         // the number of the left BPM encoder pin
+const int volPin1 = 31;         // the number of the right volume encoder pin
+const int volPin2 = 32;         // the number of the left volume encoder pin
 
 const int beatLED = 13;         // the number of the beat indicator LED
 const int clickLED = 1;         // the number of the click enable LED
@@ -104,7 +141,10 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 IntervalTimer beatTimer;
 
-struct globalConfig statusBar = {120, 50, false};
+Encoder BPM_Enc(BPMPin1,BPMPin2);
+Encoder vol_Enc(volPin1,volPin2);
+
+struct globalConfig statusBar = {85, 50, false};
 
 int menu_id; // current state of the menu
 
@@ -136,9 +176,47 @@ bool left_pressed_flag = false;
 bool select_pressed_flag = false;
 bool back_pressed_flag = false;
 
+char track1[] = "SDTEST1.WAV";
+char track2[] = "SDTEST2.WAV";
+char track3[] = "SDTEST3.WAV";
+char track4[] = "SDTEST4.WAV";
+
+long oldBPMPosition = -999;
+long oldVolPosition = -999;
+long newVolPosition;
+long newBPMPosition;
+
+
 // SETUP AND LOOP FUNCTIONS
 void setup() {
   Serial.begin(9600);
+
+  AudioMemory(60); // Memory for all audio funcitons especially recording buffer
+  sgtl5000_1.enable();
+  sgtl5000_1.volume(1);
+
+  SPI.setMOSI(SDCARD_MOSI_PIN);
+  SPI.setSCK(SDCARD_SCK_PIN);
+  if (!(SD.begin(SDCARD_CS_PIN))) {
+    while (1) {
+      Serial.println("Unable to access the SD card");
+      delay(500);
+    }
+  }
+
+  // Track Mixer
+  mixer1.gain(0, 0.5); // Track 1
+  mixer1.gain(1, 0.5); // Track 2
+  mixer1.gain(2, 0.5); // Track 3
+  mixer1.gain(3, 0.5); // Track 4
+  
+  // Metronome Mixer
+  mixer2.gain(0,1);
+
+  //Track and Metronome Mixer
+  mixer3.gain(0, 0.4); // Track Mixer
+  mixer3.gain(1, 0.7); // Metronome Mixer
+  
   // initialize pins as inputs:
   pinMode(leftButton, INPUT_PULLUP);
   pinMode(rightButton, INPUT_PULLUP);
@@ -165,10 +243,16 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(hapticButton), hapticButton_ISR, FALLING);
   attachInterrupt(digitalPinToInterrupt(playrecButton), playrecButton_ISR, FALLING);
 
+  attachInterrupt(digitalPinToInterrupt(BPMPin1), changeBPM, FALLING);
+  attachInterrupt(digitalPinToInterrupt(volPin1), changeVol, FALLING);
+
   if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3D)) { // Address 0x3D for 128x64
     Serial.println(F("SSD1306 allocation failed"));
     for(;;); // Don't proceed, loop forever
   }
+
+  BPM_Enc.write(statusBar.bpm*4);
+  vol_Enc.write(statusBar.vol*4);
 
   display.clearDisplay();
   display.display();
@@ -180,6 +264,20 @@ void setup() {
 }
 
 void loop() {
+  newVolPosition = vol_Enc.read();
+  newBPMPosition = BPM_Enc.read();
+  if (newVolPosition % 4 == 0 && newVolPosition != oldVolPosition) {
+    oldVolPosition = newVolPosition;
+    statusBar.vol = newVolPosition/4;
+    changeVol();
+    Serial.println("Volume: " + String(newVolPosition / 4));
+  }
+  if (newBPMPosition % 4 == 0 && newBPMPosition != oldBPMPosition) {
+    oldBPMPosition = newBPMPosition;
+    statusBar.bpm = newBPMPosition/4;
+    changeBPM();
+    Serial.println("BPM: " + String(newBPMPosition / 4));
+  }
   drawStatusBar();
   switch (menu_id) {
     case (MENU_HOME):                               // HOME
@@ -431,7 +529,7 @@ void drawStatusBar() {
   String BPM = "BPM:" + String(statusBar.bpm);
   display.println(BPM);
   
-  String VOL = "Vol:" + String(statusBar.volume);
+  String VOL = "Vol:" + String(statusBar.vol);
   display.setCursor(48,2);
   display.println(VOL);
 
@@ -585,6 +683,7 @@ void drawStorageLimit() {
   display.display();
 }
 
+
 // CORE FUNCTIONS
 int getSessionOverview(sessionView sessions_list[]) {
   // currently creates a dummy list of 5 sessions
@@ -652,6 +751,7 @@ void enterSetting() {
 
 }
 
+
 // Interrupt Service Routines
 void debounce_normal(bool &flag, String message) {
   unsigned long interrupt_time = millis();
@@ -688,14 +788,17 @@ void sendBeat() {
      beat_LED_enable = true;
   }
   // conditionally send click
+  if (click_enable && beat_LED_enable) {
+    playMem1.play(AudioSampleMetronome);
+  }
   // conditionally send pulse to haptic
 }
 void changeBPM() {
   // update statusBar.bpm with new value
-//  beatTimer.update((60*pow(10,6))/statusBar.bpm);
+  beatTimer.update((0.5*60*pow(10,6))/statusBar.bpm);
 }
 void changeVol() {
-  // update statusBar.volume with new value
+  // update statusBar.vol with new value
 }
 void leftButton_ISR() {
   debounce_normal(left_pressed_flag, "Left button pressed");
