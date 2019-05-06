@@ -69,8 +69,8 @@ void setup() {
   mixer2.gain(0,1);
 
   //Track and Metronome Mixer
-  mixer3.gain(0, 0); // Track Mixer
-  mixer3.gain(1, 0); // Metronome Mixer
+  mixer3.gain(0, 0.4); // Track Mixer
+  mixer3.gain(1, 0.7); // Metronome Mixer
   
   delay(1000);
 }

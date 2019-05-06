@@ -42,6 +42,21 @@ AudioControlSGTL5000     sgtl5000_1;     //xy=265,212
 
 int session = 23;
 
+struct SessionMeta {
+  String name;
+  int size;
+};
+
+struct SessionView {
+  String name;
+  //String lastModified;
+};
+
+struct Track {
+  String name;
+};
+
+
 void getTrackFilepath(int trackNumber) {
   // Use global variable selected_session
   // session/track.wav
@@ -52,12 +67,10 @@ void getTrackFilepath(int trackNumber) {
   fileString += ".wav";
   char filename[50];
   fileString.toCharArray(filename, 50);
-  
   Serial.println(filename);
 }
 
 bool fileExists(char dir[]) {
-  
   if (SD.exists(dir)) {
     return 1;
   }
@@ -66,8 +79,32 @@ bool fileExists(char dir[]) {
   } 
 }
 
-int existingSessions() {
-  // Scan SD card and return an array of every existing session in order
+struct SessionMeta* getSessionOverview() {
+  // Scan SD card and return a pointer to an array of every existing session in order
+  struct SessionMeta sessionArray[99];
+  int numSessions = 0;
+  File dir = SD.open("Sessions");
+  
+  while (true) {
+    File entry =  dir.openNextFile();
+    if (! entry) {
+      // no more files  
+      break;
+      }
+    //struct Session tempSession = {entry.name(),3}; 
+    sessionArray[numSessions] = {entry.name(),entry.size()}; // Initialize session  
+    numSessions += 1;
+    entry.close();
+  }
+  for (int i = 0; i < numSessions; i++) {
+    Serial.print(sessionArray[i].name);
+    Serial.print(",");
+    Serial.print(sessionArray[i].size);
+    Serial.println();
+  }
+    Serial.println();
+  
+  return sessionArray;
 }
 
 void createSession(int sessionNumber) {
@@ -82,12 +119,46 @@ void createSession(int sessionNumber) {
   else {
     Serial.printf("Error creating %s\n", filename);
   }
+fileString += "/meta";
+fileString.toCharArray(filename, 50);
+ writeMetadata(filename);
+}
+
+void writeMetadata(char* filename) {
+  File dataFile = SD.open(filename, FILE_WRITE);
+  Serial.printf("Testing filename* is %s \n", filename);
+  if (dataFile) {
+    dataFile.println("Session 3"); // Name
+    dataFile.println("11/2/2019"); // Date Created
+    dataFile.println("11/5/2019"); // Last opened
+    dataFile.println("85"); // BPM
+    dataFile.println("8"); // Length
+  }
+  else {
+    Serial.println("Error opening filename in writeMetadata");
+  }
 }
 
 void deleteSession(int sessionNumber) {
   String fileString = "Sessions/";
   fileString += sessionNumber;
+  String tmpString = fileString;
   char filename[50];
+  fileString.toCharArray(filename, 50);
+  File dir = SD.open(filename);
+  // Delete all 
+  while (true) {
+    File entry = dir.openNextFile();
+    if (! entry) {
+      // no more files
+      break;
+    }
+    tmpString += "/";
+    tmpString += entry.name();
+    tmpString.toCharArray(filename, 50);
+    SD.remove(filename);
+    Serial.println("Removed file");
+  }
   fileString.toCharArray(filename, 50);
   SD.rmdir(filename);
   if (! fileExists(filename)){
@@ -148,9 +219,6 @@ File frec;
 
 File root;
 void setup() {
- 
-    
-  
   // Configure the pushbutton pins
   pinMode(0, INPUT_PULLUP);
   pinMode(1, INPUT_PULLUP);
@@ -181,12 +249,12 @@ void setup() {
     createSession(3);
     createSession(5);
     createSession(23);
-    deleteSession(5);
+    deleteSession(23);
 
     root = SD.open("Sessions");
-    printDirectory(root, 1);
     root.rewindDirectory();
     root.close();
+    getSessionOverview();
   
 }
 
