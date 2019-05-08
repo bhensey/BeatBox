@@ -1,15 +1,3 @@
-// Record sound as raw data to a SD card, and play it back.
-//
-// Requires the audio shield:
-//   http://www.pjrc.com/store/teensy3_audio.html
-//
-// Three pushbuttons nee\\\\\\\d to be connected:
-//   Record Button: pin 0 to GND
-//   Stop Button:   pin 1 to GND
-//   Play Button:   pin 2 to GND
-//
-// This example code is in the public domain.
-
 #include <Bounce.h>
 #include <Audio.h>
 #include <Wire.h>
@@ -18,25 +6,30 @@
 #include <SerialFlash.h>
 
 // Use these with the Teensy Audio Shield
-#define SDCARD_CS_PIN    10
-#define SDCARD_MOSI_PIN  7
-#define SDCARD_SCK_PIN   14
+//#define SDCARD_CS_PIN    10
+//#define SDCARD_MOSI_PIN  7
+//#define SDCARD_SCK_PIN   14
 
 // Use these with the Teensy 3.6 SD card
 #define SDCARD_CS_PIN    BUILTIN_SDCARD
 #define SDCARD_MOSI_PIN  11 // not actually used
 #define SDCARD_SCK_PIN   13 // not actually used
 
-// CUSTOM FUNCTIONS (using global variables)
+//
+// DATA AND STRUCTS
+//
 
 int session = 23;
 
+
+// GIVES METADATA OF ALL SESSIONS
 struct SessionMeta {
   String name;
   int size;
+  
 };
 
-struct SessionView {
+struct Session {
   String name;
   //String lastModified;
 };
@@ -46,6 +39,9 @@ struct Track {
 };
 
 
+//
+// HELPER FUNCTIONS
+//
 void getTrackFilepath(int trackNumber) {
   // Use global variable selected_session
   // session/track.wav
@@ -68,34 +64,61 @@ bool fileExists(char dir[]) {
   } 
 }
 
-struct SessionMeta* getSessionOverview() {
+//
+// RETURN POINTER TO AN ARRAY OF EVERY EXISTING SESSION
+//
+int getSessionOverview(SessionMeta *sessionArray) {
   // Scan SD card and return a pointer to an array of every existing session in order
-  struct SessionMeta sessionArray[99];
+  Serial.println("Running getSessionOverview...");
   int numSessions = 0;
+  char filename[50];
+  String fileString;
   File dir = SD.open("Sessions");
-  
   while (true) {
     File entry =  dir.openNextFile();
     if (! entry) {
       // no more files  
       break;
       }
-    //struct Session tempSession = {entry.name(),3}; 
-    sessionArray[numSessions] = {entry.name(),entry.size()}; // Initialize session  
+
+    fileString = "Sessions/";
+    fileString += entry.name();
+    fileString += "/meta";
+    fileString.toCharArray(filename,50);
+    sessionArray[numSessions] = getSessionMeta(SD.open(filename));
+    //sessionArray[numSessions] = {entry.name(),entry.size()}; // Initialize session  
     numSessions += 1;
     entry.close();
   }
-  for (int i = 0; i < numSessions; i++) {
-    Serial.print(sessionArray[i].name);
-    Serial.print(",");
-    Serial.print(sessionArray[i].size);
-    Serial.println();
-  }
-    Serial.println();
   
-  return sessionArray;
+  return numSessions;
 }
 
+//
+// GET METADATA
+//
+SessionMeta getSessionMeta(File metaFile) {
+  Serial.println(metaFile.read());
+  SessionMeta newSession = {
+    metaFile.read(),
+    metaFile.read() 
+  };
+  metaFile.close();
+  return newSession;
+  
+}
+
+//
+// READ LINE FROM FILE AND RETURN STRING
+//
+String readLine() {
+  return 
+}
+
+
+//
+// INITIALIZE NEW TRACK
+//
 void createSession(int sessionNumber) {
   String fileString = "Sessions/";
   fileString += sessionNumber;
@@ -115,19 +138,22 @@ fileString.toCharArray(filename, 50);
 
 void writeMetadata(char* filename) {
   File dataFile = SD.open(filename, FILE_WRITE);
-  Serial.printf("Testing filename* is %s \n", filename);
   if (dataFile) {
     dataFile.println("Session 3"); // Name
     dataFile.println("11/2/2019"); // Date Created
     dataFile.println("11/5/2019"); // Last opened
     dataFile.println("85"); // BPM
     dataFile.println("8"); // Length
+    dataFile.close();
   }
   else {
     Serial.println("Error opening filename in writeMetadata");
   }
 }
 
+//
+// DELETE SESSION FILES AND FOLDER
+//
 void deleteSession(int sessionNumber) {
   String fileString = "Sessions/";
   fileString += sessionNumber;
@@ -158,6 +184,9 @@ void deleteSession(int sessionNumber) {
   }
 }
 
+//
+// DEBUGGING: PRINT FILE SYSTEM
+//
 void printDirectory(File dir, int numTabs) {
   while (true) {
 
@@ -183,6 +212,9 @@ void printDirectory(File dir, int numTabs) {
 }
 
 
+//
+// SETUP CODE
+//
 File root;
 void setup() {
   // Initialize the SD card
@@ -197,15 +229,28 @@ void setup() {
   }
   
 
-   // Test Code
+     //
+     // TEST CODE
+     //
     createSession(3);
     createSession(5);
     createSession(23);
     deleteSession(23);
 
     root = SD.open("Sessions");
+    SessionMeta sessionArray[99];
+    int numSessions = getSessionOverview(sessionArray);
+    for (int i=0; i<numSessions; i++) {
+      Serial.println(sessionArray[i].name);
+    }
+  
     root.rewindDirectory();
     root.close();
-    getSessionOverview();
+    
   
+}
+
+void loop() {
+  // put your main code here, to run repeatedly:
+
 }
