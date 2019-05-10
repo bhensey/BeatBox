@@ -4,6 +4,7 @@
 #include <Audio.h>
 #include <SD.h>
 #include <SerialFlash.h>
+#define ENCODER_OPTIMIZE_INTERRUPTS
 #include <Encoder.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
@@ -125,10 +126,10 @@ const int clickButton = 37;     // the number of the click button pin
 const int hapticButton = 36;    // the number of the haptic button pin
 const int playrecButton = 38;   // the number of the play/rec button pin
 
-const int BPMPin1 = 29;         // the number of the right BPM encoder pin
-const int BPMPin2 = 30;         // the number of the left BPM encoder pin
-const int volPin1 = 31;         // the number of the right volume encoder pin
-const int volPin2 = 32;         // the number of the left volume encoder pin
+const int BPMPin1 = 31;         // the number of the right BPM encoder pin
+const int BPMPin2 = 32;         // the number of the left BPM encoder pin
+const int volPin1 = 29;         // the number of the right volume encoder pin
+const int volPin2 = 30;         // the number of the left volume encoder pin
 
 const int beatLED = 13;         // the number of the beat indicator LED
 const int clickLED = 1;         // the number of the click enable LED
@@ -186,10 +187,23 @@ long oldVolPosition = -999;
 long newVolPosition;
 long newBPMPosition;
 
+volatile unsigned int VOL_encoderPos = 50;  // a counter for the dial
+static boolean VOL_rotating = false;    // debounce management
+
+volatile unsigned int BPM_encoderPos = 85;  // a counter for the dial
+static boolean BPM_rotating = false;    // debounce management
+
+// interrupt service routine vars
+boolean VOL_A_set = false;
+boolean VOL_B_set = false;
+
+boolean BPM_A_set = false;
+boolean BPM_B_set = false;
+
 
 // SETUP AND LOOP FUNCTIONS
 void setup() {
-  Serial.begin(9600);
+  //Serial.begin(9600);
 
   AudioMemory(60); // Memory for all audio funcitons especially recording buffer
   sgtl5000_1.enable();
@@ -199,7 +213,7 @@ void setup() {
   SPI.setSCK(SDCARD_SCK_PIN);
   if (!(SD.begin(SDCARD_CS_PIN))) {
     while (1) {
-      Serial.println("Unable to access the SD card");
+      //Serial.println("Unable to access the SD card");
       delay(500);
     }
   }
@@ -243,16 +257,16 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(hapticButton), hapticButton_ISR, FALLING);
   attachInterrupt(digitalPinToInterrupt(playrecButton), playrecButton_ISR, FALLING);
 
-  attachInterrupt(digitalPinToInterrupt(BPMPin1), changeBPM, FALLING);
-  attachInterrupt(digitalPinToInterrupt(volPin1), changeVol, FALLING);
+  attachInterrupt(digitalPinToInterrupt(volPin1), changeVOL_UP,   CHANGE);
+  attachInterrupt(digitalPinToInterrupt(volPin2), changeVOL_DOWN, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(BPMPin1), changeBPM_UP,   CHANGE);
+  attachInterrupt(digitalPinToInterrupt(BPMPin2), changeBPM_DOWN, CHANGE);
+
 
   if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3D)) { // Address 0x3D for 128x64
-    Serial.println(F("SSD1306 allocation failed"));
+    //Serial.println(F("SSD1306 allocation failed"));
     for(;;); // Don't proceed, loop forever
   }
-
-  BPM_Enc.write(statusBar.bpm*4);
-  vol_Enc.write(statusBar.vol*4);
 
   display.clearDisplay();
   display.display();
@@ -263,22 +277,85 @@ void setup() {
   menu_id = 0;
 }
 
-void loop() {
-  newVolPosition = vol_Enc.read();
-  newBPMPosition = BPM_Enc.read();
-  if (newVolPosition % 4 == 0 && newVolPosition != oldVolPosition) {
-    oldVolPosition = newVolPosition;
-    statusBar.vol = newVolPosition/4;
+// Interrupt on A changing state
+void changeVOL_DOWN() {
+  // debounce
+  if ( VOL_rotating ) delay (1);  // wait a little until the bouncing is done
+
+  // Test transition, did things really change?
+  if ( digitalRead(volPin1) != VOL_A_set ) { // debounce once more
+    VOL_A_set = !VOL_A_set;
+
+    // adjust counter + if A leads B
+    if ( VOL_A_set && !VOL_B_set )
+      VOL_encoderPos += 1;
+
+    VOL_rotating = false;  // no more debouncing until loop() hits again
+  }
+}
+
+// Interrupt on B changing state, same as A above
+void changeVOL_UP() {
+  if ( VOL_rotating ) delay (1);
+  if ( digitalRead(volPin2) != VOL_B_set ) {
+    VOL_B_set = !VOL_B_set;
+    //  adjust counter - 1 if B leads A
+    if ( VOL_B_set && !VOL_A_set )
+      VOL_encoderPos -= 1;
+
+    VOL_rotating = false;
+  }
+}
+
+// Interrupt on A changing state
+void changeBPM_DOWN() {
+  // debounce
+  if ( BPM_rotating ) delay (1);  // wait a little until the bouncing is done
+
+  // Test transition, did things really change?
+  if ( digitalRead(BPMPin1) != BPM_A_set ) { // debounce once more
+    BPM_A_set = !BPM_A_set;
+
+    // adjust counter + if A leads B
+    if ( BPM_A_set && !BPM_B_set )
+      BPM_encoderPos += 1;
+
+    BPM_rotating = false;  // no more debouncing until loop() hits again
+  }
+}
+
+// Interrupt on B changing state, same as A above
+void changeBPM_UP() {
+  if ( BPM_rotating ) delay (1);
+  if ( digitalRead(BPMPin2) != BPM_B_set ) {
+    BPM_B_set = !BPM_B_set;
+    //  adjust counter - 1 if B leads A
+    if ( BPM_B_set && !BPM_A_set )
+      BPM_encoderPos -= 1;
+
+    BPM_rotating = false;
+  }
+}
+
+void handleStatus() {
+  if(VOL_encoderPos > 201) VOL_encoderPos = 0;
+    if(VOL_encoderPos > 100) VOL_encoderPos = 100;
+    
+    if(BPM_encoderPos < 40) BPM_encoderPos = 40;
+    if(BPM_encoderPos > 240) BPM_encoderPos = 240;
+    statusBar.vol = VOL_encoderPos;
     changeVol();
-    Serial.println("Volume: " + String(newVolPosition / 4));
-  }
-  if (newBPMPosition % 4 == 0 && newBPMPosition != oldBPMPosition) {
-    oldBPMPosition = newBPMPosition;
-    statusBar.bpm = newBPMPosition/4;
+
+    statusBar.bpm = BPM_encoderPos;
     changeBPM();
-    Serial.println("BPM: " + String(newBPMPosition / 4));
-  }
+    
+}
+
+void loop() {
+
+  handleStatus();
   drawStatusBar();
+
   switch (menu_id) {
     case (MENU_HOME):                               // HOME
       drawHome(selected_home_option);
@@ -513,7 +590,7 @@ void loop() {
         play_rec_pressed_flag = false;
       }
       break;
-  }
+  } 
 }
 
 // DISPLAY FUNCTIONS
@@ -758,7 +835,7 @@ void debounce_normal(bool &flag, String message) {
   if (interrupt_time - last_interrupt_time > INTERRUPT_THRESHOLD) 
   {
    flag = true;
-   Serial.println(message);
+   //Serial.println(message);
   }
   last_interrupt_time = interrupt_time;
 }
@@ -769,10 +846,10 @@ void debounce_toggle(bool& flag, int pin, String message) {
     flag = !flag;
     if (flag) {
       digitalWrite(pin,HIGH);
-      Serial.println(message + "->on");
+      //Serial.println(message + "->on");
     } else {
       digitalWrite(pin,LOW);
-      Serial.println(message + "->off");
+      //Serial.println(message + "->off");
     }
   }
   last_interrupt_time = interrupt_time;
