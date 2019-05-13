@@ -1,9 +1,10 @@
-#include <Time.h>
+#include <TimeLib.h>
 #include <SPI.h>
 #include <Wire.h>
 #include <Audio.h>
 #include <SD.h>
 #include <SerialFlash.h>
+#define ENCODER_OPTIMIZE_INTERRUPTS
 #include <Encoder.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
@@ -69,6 +70,11 @@ AudioControlSGTL5000     sgtl5000_1;     //xy=252,427
 
 #define INTERRUPT_THRESHOLD   200
 
+#define MIN_VOL     0
+#define MAX_VOL     100
+#define MIN_BPM     40
+#define MAX_BPM     220
+
 // Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
 #define OLED_RESET     5 // Reset pin # (or -1 if sharing Arduino reset pin)
 
@@ -125,10 +131,10 @@ const int clickButton = 37;     // the number of the click button pin
 const int hapticButton = 36;    // the number of the haptic button pin
 const int playrecButton = 38;   // the number of the play/rec button pin
 
-const int BPMPin1 = 29;         // the number of the right BPM encoder pin
-const int BPMPin2 = 30;         // the number of the left BPM encoder pin
-const int volPin1 = 31;         // the number of the right volume encoder pin
-const int volPin2 = 32;         // the number of the left volume encoder pin
+const int BPMPin1 = 31;         // the number of the right BPM encoder pin
+const int BPMPin2 = 32;         // the number of the left BPM encoder pin
+const int volPin1 = 29;         // the number of the right volume encoder pin
+const int volPin2 = 30;         // the number of the left volume encoder pin
 
 const int beatLED = 13;         // the number of the beat indicator LED
 const int clickLED = 1;         // the number of the click enable LED
@@ -181,15 +187,26 @@ char track2[] = "SDTEST2.WAV";
 char track3[] = "SDTEST3.WAV";
 char track4[] = "SDTEST4.WAV";
 
-long oldBPMPosition = -999;
-long oldVolPosition = -999;
-long newVolPosition;
-long newBPMPosition;
+volatile unsigned int VOL_encoderPos = statusBar.vol;  // a counter for the dial
+static boolean VOL_rotating = false;                   // debounce management
+
+volatile unsigned int BPM_encoderPos = statusBar.bpm;  // a counter for the dial
+static boolean BPM_rotating = false;                   // debounce management
+
+// interrupt service routine vars
+boolean VOL_A_set = false;
+boolean VOL_B_set = false;
+
+boolean BPM_A_set = false;
+boolean BPM_B_set = false;
 
 
 // SETUP AND LOOP FUNCTIONS
 void setup() {
   Serial.begin(9600);
+
+  Serial.println(timeStatus());
+  Serial.println("Current time: " + String(now()));
 
   AudioMemory(60); // Memory for all audio funcitons especially recording buffer
   sgtl5000_1.enable();
@@ -199,7 +216,7 @@ void setup() {
   SPI.setSCK(SDCARD_SCK_PIN);
   if (!(SD.begin(SDCARD_CS_PIN))) {
     while (1) {
-      Serial.println("Unable to access the SD card");
+      //Serial.println("Unable to access the SD card");
       delay(500);
     }
   }
@@ -243,16 +260,16 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(hapticButton), hapticButton_ISR, FALLING);
   attachInterrupt(digitalPinToInterrupt(playrecButton), playrecButton_ISR, FALLING);
 
-  attachInterrupt(digitalPinToInterrupt(BPMPin1), changeBPM, FALLING);
-  attachInterrupt(digitalPinToInterrupt(volPin1), changeVol, FALLING);
+  attachInterrupt(digitalPinToInterrupt(volPin1), changeVOL_UP,   CHANGE);
+  attachInterrupt(digitalPinToInterrupt(volPin2), changeVOL_DOWN, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(BPMPin1), changeBPM_UP,   CHANGE);
+  attachInterrupt(digitalPinToInterrupt(BPMPin2), changeBPM_DOWN, CHANGE);
+
 
   if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3D)) { // Address 0x3D for 128x64
-    Serial.println(F("SSD1306 allocation failed"));
+    //Serial.println(F("SSD1306 allocation failed"));
     for(;;); // Don't proceed, loop forever
   }
-
-  BPM_Enc.write(statusBar.bpm*4);
-  vol_Enc.write(statusBar.vol*4);
 
   display.clearDisplay();
   display.display();
@@ -264,20 +281,178 @@ void setup() {
 }
 
 void loop() {
-  newVolPosition = vol_Enc.read();
-  newBPMPosition = BPM_Enc.read();
-  if (newVolPosition % 4 == 0 && newVolPosition != oldVolPosition) {
-    oldVolPosition = newVolPosition;
-    statusBar.vol = newVolPosition/4;
-    changeVol();
-    Serial.println("Volume: " + String(newVolPosition / 4));
+  handleStatus();
+  updateDisplay();
+}
+
+// DISPLAY FUNCTIONS
+void drawStatusBar() {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  
+  //                x,y
+  display.setCursor(2,2);
+  display.cp437(true);
+  
+  String BPM = "BPM:" + String(statusBar.bpm);
+  display.println(BPM);
+  
+  String VOL = "Vol:" + String(statusBar.vol);
+  display.setCursor(48,2);
+  display.println(VOL);
+
+  if(!statusBar.play_rec) {
+    display.setCursor(100,2);
+    display.println("REC");
+  } else {
+    display.setCursor(97,2);
+    display.println("Play");
   }
-  if (newBPMPosition % 4 == 0 && newBPMPosition != oldBPMPosition) {
-    oldBPMPosition = newBPMPosition;
-    statusBar.bpm = newBPMPosition/4;
-    changeBPM();
-    Serial.println("BPM: " + String(newBPMPosition / 4));
+
+  display.setCursor(122,2);
+  display.write(RIGHT_ARROW);
+  display.drawLine(0, 9, 128, 9, WHITE);
+}
+
+void boxed_text(String text, int x_pos, int y_pos, bool selected) {
+  if(!selected) display.setTextColor(WHITE, BLACK);
+  else display.setTextColor(BLACK,WHITE);
+  int len = text.length();
+  display.setCursor(x_pos, y_pos);
+  display.println(text);
+  display.drawRect(x_pos-2, y_pos-2, len*7, 12, WHITE);
+  display.setTextColor(WHITE, BLACK);
+}
+
+void draw_level(String Name) {
+  display.setCursor(0,11);
+  display.println(Name);
+}
+
+void drawHome(uint8_t selected) {
+  uint8_t highlight = 0x8>>selected;
+  draw_level("Home");
+  boxed_text("New", 10, display.height() / 2 + 10, IS_SEL_LEFT(highlight));
+  boxed_text("Files", 45, display.height() / 2 + 10, IS_SEL_CENTER(highlight));
+  boxed_text("Prefs", 90, display.height() / 2 + 10, IS_SEL_RIGHT(highlight));
+  display.display();
+}
+
+void centerText(String text, int y_pos) {
+  int len = text.length();
+  int num_px = len*6;
+  display.setCursor(SCREEN_WIDTH/2 - num_px/2,y_pos);
+  display.println(text);
+}
+
+void drawSettings(uint8_t selected) {
+  uint8_t highlight = 0x8>>selected;
+  draw_level("Preferences");
+  boxed_text("Sound", 12, display.height() / 2 + 10, IS_SEL_LEFT(highlight));
+  boxed_text("Reset", 51, display.height() / 2 + 10, IS_SEL_CENTER(highlight));
+  boxed_text("Loop", 91, display.height() / 2 + 10, IS_SEL_RIGHT(highlight));
+  display.display();
+}
+
+void drawSessionSelect(uint8_t selected) {
+  uint8_t highlight = 0x8>>(selected-viewable_sessions[0]);
+  draw_level("Session Select");
+  if (num_sessions == 0) {
+    // no sessions
+  } else if (num_sessions == 1) {
+    String sess_l = "S" + String(viewable_sessions[0]+1);
+    boxed_text(sess_l, 20, display.height() / 2 - 4, IS_SEL_LEFT(highlight));
+  } else if (num_sessions == 2) {
+    String sess_l = "S" + String(viewable_sessions[0]+1);
+    String sess_c = "S" + String(viewable_sessions[1]+1);
+    boxed_text(sess_l, 20, display.height() / 2 - 4, IS_SEL_LEFT(highlight));
+    boxed_text(sess_c, 60, display.height() / 2 - 4, IS_SEL_CENTER(highlight));
+  } else {
+    String sess_l = "S" + String(viewable_sessions[0]+1);
+    String sess_c = "S" + String(viewable_sessions[1]+1);
+    String sess_r = "S" + String(viewable_sessions[2]+1);
+    boxed_text(sess_l, 20, display.height() / 2 - 4, IS_SEL_LEFT(highlight));
+    boxed_text(sess_c, 60, display.height() / 2 - 4, IS_SEL_CENTER(highlight));
+    boxed_text(sess_r, 100, display.height() / 2 - 4, IS_SEL_RIGHT(highlight));
   }
+  if(viewable_sessions[0] > 0) { // left arrow
+    display.setCursor(2,display.height() / 2 - 4);
+    display.write(LEFT_ARROW);
+    
+  }
+  if(viewable_sessions[2] < num_sessions-1) { // right arrow
+    display.setCursor(122,display.height() / 2 - 4);
+    display.write(RIGHT_ARROW);
+  }
+
+  centerText(sessions[selected_session].session_name, 40);
+  display.display();
+}
+
+void drawSessionConfig(int session_number, bool highlight) {
+  draw_level("Session Config");
+  String sess = "S" + String(session_number+1); 
+  boxed_text(sess, display.width() / 2 - 10, display.height() / 2 - 4, false);
+  boxed_text("Open", 25, display.height() / 2 + 10, !highlight);
+  int posn_x = 67;
+  if(sess.length() > 2) posn_x = 74;
+  boxed_text("Delete", posn_x, display.height() / 2 + 10, highlight);
+  display.display();
+}
+
+void drawTrackSelect(uint8_t existing_tracks, uint8_t highlight) {
+  draw_level("Track Select");
+  String track_dne = " + ";
+  if(IS_SEL_LEFT(existing_tracks)) {
+    boxed_text("T1", 10, display.height() - 20, IS_SEL_LEFT(highlight));
+  } else {
+    boxed_text(track_dne, 10, display.height() - 20, IS_SEL_LEFT(highlight));
+  }
+
+  if(IS_SEL_CENTER(existing_tracks)) {
+     boxed_text("T2", 40, display.height() - 20, IS_SEL_CENTER(highlight));
+  } else {
+     boxed_text(track_dne, 40, display.height() - 20, IS_SEL_CENTER(highlight));
+  }
+
+  if(IS_SEL_RIGHT(existing_tracks)) {
+     boxed_text("T3", 70, display.height() - 20, IS_SEL_RIGHT(highlight));
+  } else {
+     boxed_text(track_dne, 70, display.height() - 20, IS_SEL_RIGHT(highlight));
+  }
+
+  if(IS_SEL_FAR_RIGHT(existing_tracks)) {
+     boxed_text("T4", 100, display.height() - 20, IS_SEL_FAR_RIGHT(highlight));
+  } else {
+     boxed_text(track_dne, 100, display.height() - 20, IS_SEL_FAR_RIGHT(highlight));
+  }
+  
+  display.display();
+}
+
+void drawTrackOptions(uint8_t track_no, uint8_t highlight) {
+  draw_level("Track Options");
+  String track = "T" + String(track_no);
+  boxed_text(track, display.width() / 2 - 10, display.height() - 25, false);
+  boxed_text("Mute", 25, display.height() - 10, IS_SEL_LEFT(highlight));
+  int posn_x = 67; 
+  if(track.length() > 2) posn_x = 74;
+  boxed_text("Delete", posn_x, display.height() - 10, IS_SEL_RIGHT(highlight));
+  display.display();
+}
+
+void drawStorageLimit() {
+  display.clearDisplay();
+  display.setCursor(display.width()/2-20, 0);
+  display.println("Warning!");
+  display.setCursor(2,13);
+  display.println("Storage Limit Reached\nLess than 100MB free.\nDelete or export\ncontent.");
+  display.drawRect(0, 11, 128, 50, WHITE);
+  display.display();
+}
+
+void updateDisplay() {
   drawStatusBar();
   switch (menu_id) {
     case (MENU_HOME):                               // HOME
@@ -516,173 +691,6 @@ void loop() {
   }
 }
 
-// DISPLAY FUNCTIONS
-void drawStatusBar() {
-  display.clearDisplay();
-  display.setTextSize(1);
-  display.setTextColor(WHITE);
-  
-  //                x,y
-  display.setCursor(2,2);
-  display.cp437(true);
-  
-  String BPM = "BPM:" + String(statusBar.bpm);
-  display.println(BPM);
-  
-  String VOL = "Vol:" + String(statusBar.vol);
-  display.setCursor(48,2);
-  display.println(VOL);
-
-  if(!statusBar.play_rec) {
-    display.setCursor(100,2);
-    display.println("REC");
-  } else {
-    display.setCursor(97,2);
-    display.println("Play");
-  }
-
-  display.setCursor(122,2);
-  display.write(RIGHT_ARROW);
-  display.drawLine(0, 9, 128, 9, WHITE);
-}
-
-void boxed_text(String text, int x_pos, int y_pos, bool selected) {
-  if(!selected) display.setTextColor(WHITE, BLACK);
-  else display.setTextColor(BLACK,WHITE);
-  int len = text.length();
-  display.setCursor(x_pos, y_pos);
-  display.println(text);
-  display.drawRect(x_pos-2, y_pos-2, len*7, 12, WHITE);
-  display.setTextColor(WHITE, BLACK);
-}
-
-void draw_level(String Name) {
-  display.setCursor(0,11);
-  display.println(Name);
-}
-
-void drawHome(uint8_t selected) {
-  uint8_t highlight = 0x8>>selected;
-  draw_level("Home");
-  boxed_text("New", 10, display.height() / 2 + 10, IS_SEL_LEFT(highlight));
-  boxed_text("Files", 45, display.height() / 2 + 10, IS_SEL_CENTER(highlight));
-  boxed_text("Prefs", 90, display.height() / 2 + 10, IS_SEL_RIGHT(highlight));
-  display.display();
-}
-
-void centerText(String text, int y_pos) {
-  int len = text.length();
-  int num_px = len*6;
-  display.setCursor(SCREEN_WIDTH/2 - num_px/2,y_pos);
-  display.println(text);
-}
-
-void drawSettings(uint8_t selected) {
-  uint8_t highlight = 0x8>>selected;
-  draw_level("Preferences");
-  boxed_text("Sound", 12, display.height() / 2 + 10, IS_SEL_LEFT(highlight));
-  boxed_text("Reset", 51, display.height() / 2 + 10, IS_SEL_CENTER(highlight));
-  boxed_text("Loop", 91, display.height() / 2 + 10, IS_SEL_RIGHT(highlight));
-  display.display();
-}
-
-void drawSessionSelect(uint8_t selected) {
-  uint8_t highlight = 0x8>>(selected-viewable_sessions[0]);
-  draw_level("Session Select");
-  if (num_sessions == 0) {
-    // no sessions
-  } else if (num_sessions == 1) {
-    String sess_l = "S" + String(viewable_sessions[0]+1);
-    boxed_text(sess_l, 20, display.height() / 2 - 4, IS_SEL_LEFT(highlight));
-  } else if (num_sessions == 2) {
-    String sess_l = "S" + String(viewable_sessions[0]+1);
-    String sess_c = "S" + String(viewable_sessions[1]+1);
-    boxed_text(sess_l, 20, display.height() / 2 - 4, IS_SEL_LEFT(highlight));
-    boxed_text(sess_c, 60, display.height() / 2 - 4, IS_SEL_CENTER(highlight));
-  } else {
-    String sess_l = "S" + String(viewable_sessions[0]+1);
-    String sess_c = "S" + String(viewable_sessions[1]+1);
-    String sess_r = "S" + String(viewable_sessions[2]+1);
-    boxed_text(sess_l, 20, display.height() / 2 - 4, IS_SEL_LEFT(highlight));
-    boxed_text(sess_c, 60, display.height() / 2 - 4, IS_SEL_CENTER(highlight));
-    boxed_text(sess_r, 100, display.height() / 2 - 4, IS_SEL_RIGHT(highlight));
-  }
-  if(viewable_sessions[0] > 0) { // left arrow
-    display.setCursor(2,display.height() / 2 - 4);
-    display.write(LEFT_ARROW);
-    
-  }
-  if(viewable_sessions[2] < num_sessions-1) { // right arrow
-    display.setCursor(122,display.height() / 2 - 4);
-    display.write(RIGHT_ARROW);
-  }
-
-  centerText(sessions[selected_session].session_name, 40);
-  display.display();
-}
-
-void drawSessionConfig(int session_number, bool highlight) {
-  draw_level("Session Config");
-  String sess = "S" + String(session_number+1); 
-  boxed_text(sess, display.width() / 2 - 10, display.height() / 2 - 4, false);
-  boxed_text("Open", 25, display.height() / 2 + 10, !highlight);
-  int posn_x = 67;
-  if(sess.length() > 2) posn_x = 74;
-  boxed_text("Delete", posn_x, display.height() / 2 + 10, highlight);
-  display.display();
-}
-
-void drawTrackSelect(uint8_t existing_tracks, uint8_t highlight) {
-  draw_level("Track Select");
-  String track_dne = " + ";
-  if(IS_SEL_LEFT(existing_tracks)) {
-    boxed_text("T1", 10, display.height() - 20, IS_SEL_LEFT(highlight));
-  } else {
-    boxed_text(track_dne, 10, display.height() - 20, IS_SEL_LEFT(highlight));
-  }
-
-  if(IS_SEL_CENTER(existing_tracks)) {
-     boxed_text("T2", 40, display.height() - 20, IS_SEL_CENTER(highlight));
-  } else {
-     boxed_text(track_dne, 40, display.height() - 20, IS_SEL_CENTER(highlight));
-  }
-
-  if(IS_SEL_RIGHT(existing_tracks)) {
-     boxed_text("T3", 70, display.height() - 20, IS_SEL_RIGHT(highlight));
-  } else {
-     boxed_text(track_dne, 70, display.height() - 20, IS_SEL_RIGHT(highlight));
-  }
-
-  if(IS_SEL_FAR_RIGHT(existing_tracks)) {
-     boxed_text("T4", 100, display.height() - 20, IS_SEL_FAR_RIGHT(highlight));
-  } else {
-     boxed_text(track_dne, 100, display.height() - 20, IS_SEL_FAR_RIGHT(highlight));
-  }
-  
-  display.display();
-}
-
-void drawTrackOptions(uint8_t track_no, uint8_t highlight) {
-  draw_level("Track Options");
-  String track = "T" + String(track_no);
-  boxed_text(track, display.width() / 2 - 10, display.height() - 25, false);
-  boxed_text("Mute", 25, display.height() - 10, IS_SEL_LEFT(highlight));
-  int posn_x = 67; 
-  if(track.length() > 2) posn_x = 74;
-  boxed_text("Delete", posn_x, display.height() - 10, IS_SEL_RIGHT(highlight));
-  display.display();
-}
-
-void drawStorageLimit() {
-  display.clearDisplay();
-  display.setCursor(display.width()/2-20, 0);
-  display.println("Warning!");
-  display.setCursor(2,13);
-  display.println("Storage Limit Reached\nLess than 100MB free.\nDelete or export\ncontent.");
-  display.drawRect(0, 11, 128, 50, WHITE);
-  display.display();
-}
-
 
 // CORE FUNCTIONS
 int getSessionOverview(sessionView sessions_list[]) {
@@ -758,7 +766,7 @@ void debounce_normal(bool &flag, String message) {
   if (interrupt_time - last_interrupt_time > INTERRUPT_THRESHOLD) 
   {
    flag = true;
-   Serial.println(message);
+   //Serial.println(message);
   }
   last_interrupt_time = interrupt_time;
 }
@@ -769,13 +777,86 @@ void debounce_toggle(bool& flag, int pin, String message) {
     flag = !flag;
     if (flag) {
       digitalWrite(pin,HIGH);
-      Serial.println(message + "->on");
+      //Serial.println(message + "->on");
     } else {
       digitalWrite(pin,LOW);
-      Serial.println(message + "->off");
+      //Serial.println(message + "->off");
     }
   }
   last_interrupt_time = interrupt_time;
+}
+
+// Interrupt on A changing state
+void changeVOL_DOWN() {
+  // debounce
+  if ( VOL_rotating ) delay (1);  // wait a little until the bouncing is done
+
+  // Test transition, did things really change?
+  if ( digitalRead(volPin1) != VOL_A_set ) { // debounce once more
+    VOL_A_set = !VOL_A_set;
+
+    // adjust counter + if A leads B
+    if ( VOL_A_set && !VOL_B_set )
+      VOL_encoderPos += 1;
+
+    VOL_rotating = false;  // no more debouncing until loop() hits again
+  }
+}
+
+// Interrupt on B changing state, same as A above
+void changeVOL_UP() {
+  if ( VOL_rotating ) delay (1);
+  if ( digitalRead(volPin2) != VOL_B_set ) {
+    VOL_B_set = !VOL_B_set;
+    //  adjust counter - 1 if B leads A
+    if ( VOL_B_set && !VOL_A_set )
+      VOL_encoderPos -= 1;
+
+    VOL_rotating = false;
+  }
+}
+
+// Interrupt on A changing state
+void changeBPM_DOWN() {
+  // debounce
+  if ( BPM_rotating ) delay (1);  // wait a little until the bouncing is done
+
+  // Test transition, did things really change?
+  if ( digitalRead(BPMPin1) != BPM_A_set ) { // debounce once more
+    BPM_A_set = !BPM_A_set;
+
+    // adjust counter + if A leads B
+    if ( BPM_A_set && !BPM_B_set )
+      BPM_encoderPos += 1;
+
+    BPM_rotating = false;  // no more debouncing until loop() hits again
+  }
+}
+
+// Interrupt on B changing state, same as A above
+void changeBPM_UP() {
+  if ( BPM_rotating ) delay (1);
+  if ( digitalRead(BPMPin2) != BPM_B_set ) {
+    BPM_B_set = !BPM_B_set;
+    //  adjust counter - 1 if B leads A
+    if ( BPM_B_set && !BPM_A_set )
+      BPM_encoderPos -= 1;
+
+    BPM_rotating = false;
+  }
+}
+
+void handleStatus() {
+  if(VOL_encoderPos > 201) VOL_encoderPos = MIN_VOL;
+  if(VOL_encoderPos > MAX_VOL) VOL_encoderPos = MAX_VOL;
+    
+  if(BPM_encoderPos < MIN_BPM) BPM_encoderPos = MIN_BPM;
+  if(BPM_encoderPos > MAX_BPM) BPM_encoderPos = MAX_BPM;
+  statusBar.vol = VOL_encoderPos;
+  changeVol();
+
+  statusBar.bpm = BPM_encoderPos;
+  changeBPM();
 }
 
 void sendBeat() {
@@ -792,13 +873,17 @@ void sendBeat() {
     playMem1.play(AudioSampleMetronome);
   }
   // conditionally send pulse to haptic
+  if (haptic_enable && beat_LED_enable) {
+
+  }
 }
 void changeBPM() {
-  // update statusBar.bpm with new value
   beatTimer.update((0.5*60*pow(10,6))/statusBar.bpm);
 }
 void changeVol() {
-  // update statusBar.vol with new value
+  float newVol = float(statusBar.vol)/MAX_VOL;
+  mixer3.gain(0, newVol*2/3); // Track Mixer
+  mixer3.gain(1, newVol); // Metronome Mixer
 }
 void leftButton_ISR() {
   debounce_normal(left_pressed_flag, "Left button pressed");
