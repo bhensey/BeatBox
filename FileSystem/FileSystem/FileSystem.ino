@@ -23,19 +23,17 @@ int session = 23;
 
 
 // GIVES METADATA OF ALL SESSIONS
-struct SessionMeta {
-  String name;
-  int size;
-  
-};
 
 struct Session {
-  String name;
-  //String lastModified;
-};
-
-struct Track {
-  String name;
+  String sessionName;
+  int sessionBpm;
+  int sessionLength;
+  String trackOne;
+  String trackTwo;
+  String trackThree;
+  String trackFour;
+  
+  
 };
 
 
@@ -67,12 +65,10 @@ bool fileExists(char dir[]) {
 //
 // RETURN POINTER TO AN ARRAY OF EVERY EXISTING SESSION
 //
-int getSessionOverview(SessionMeta *sessionArray) {
+int getSessionOverview(Session *sessionArray) {
   // Scan SD card and return a pointer to an array of every existing session in order
   Serial.println("Running getSessionOverview...");
   int numSessions = 0;
-  char filename[50];
-  String fileString;
   File dir = SD.open("Sessions");
   while (true) {
     File entry =  dir.openNextFile();
@@ -80,13 +76,10 @@ int getSessionOverview(SessionMeta *sessionArray) {
       // no more files  
       break;
       }
-
-    fileString = "Sessions/";
-    fileString += entry.name();
-    fileString += "/meta";
-    fileString.toCharArray(filename,50);
-    sessionArray[numSessions] = getSessionMeta(SD.open(filename));
-    //sessionArray[numSessions] = {entry.name(),entry.size()}; // Initialize session  
+    Session newSession = getSession(entry.name());
+    Serial.println("Session Name: " + newSession.sessionName);
+    sessionArray[numSessions] = newSession;
+    
     numSessions += 1;
     entry.close();
   }
@@ -95,24 +88,42 @@ int getSessionOverview(SessionMeta *sessionArray) {
 }
 
 //
-// GET METADATA
+// READ LINE FROM FILE AND RETURN STRING
 //
-SessionMeta getSessionMeta(File metaFile) {
-  Serial.println(metaFile.read());
-  SessionMeta newSession = {
-    metaFile.read(),
-    metaFile.read() 
-  };
-  metaFile.close();
-  return newSession;
-  
+String readLine(File readFile) {
+  String output = "";
+  int fileChar = readFile.read();
+    while (fileChar != -1 && fileChar != 44) {
+      output += char(fileChar);
+      fileChar = readFile.read();
+    }  
+  return output;
 }
 
 //
-// READ LINE FROM FILE AND RETURN STRING
+// GET METADATA
 //
-String readLine() {
-  return 
+Session getSession(String sessionName) {
+  char filename[50];
+  String fileString;
+  fileString = "Sessions/";
+  fileString += sessionName;
+  fileString += "/meta";
+  fileString.toCharArray(filename,50);
+  File metaFile = SD.open(filename);
+  Session newSession = {
+    sessionName : readLine(metaFile),      // Name
+    sessionBpm : readLine(metaFile).toInt(),  // BPM
+    sessionLength : readLine(metaFile).toInt(),   // Length
+    trackOne: readLine(metaFile), 
+    trackTwo: readLine(metaFile),
+    trackThree: readLine(metaFile),
+    trackFour: readLine(metaFile)
+  };
+  metaFile.close();
+  
+  return newSession;
+  
 }
 
 
@@ -133,17 +144,16 @@ void createSession(int sessionNumber) {
   }
 fileString += "/meta";
 fileString.toCharArray(filename, 50);
- writeMetadata(filename);
+ writeMetadata(filename, sessionNumber);
 }
 
-void writeMetadata(char* filename) {
+void writeMetadata(char* filename, int sessionNumber) {
   File dataFile = SD.open(filename, FILE_WRITE);
   if (dataFile) {
-    dataFile.println("Session 3"); // Name
-    dataFile.println("11/2/2019"); // Date Created
-    dataFile.println("11/5/2019"); // Last opened
-    dataFile.println("85"); // BPM
-    dataFile.println("8"); // Length
+    dataFile.print("Session_" + String(sessionNumber) +','); // Name
+    dataFile.print("85,"); // BPM
+    dataFile.print("16,"); // Length
+    dataFile.print("1.RAW,2.RAW,3.RAW,4.RAW"); // Four Tracks
     dataFile.close();
   }
   else {
@@ -232,18 +242,22 @@ void setup() {
      //
      // TEST CODE
      //
+   deleteSession(3);
+   deleteSession(5);
+   deleteSession(23);
     createSession(3);
     createSession(5);
     createSession(23);
-    deleteSession(23);
 
     root = SD.open("Sessions");
-    SessionMeta sessionArray[99];
+    Session sessionArray[99];
     int numSessions = getSessionOverview(sessionArray);
     for (int i=0; i<numSessions; i++) {
-      Serial.println(sessionArray[i].name);
+      Serial.println(sessionArray[i].sessionName);
+      Serial.println(sessionArray[i].sessionBpm);
+      Serial.println(sessionArray[i].sessionLength);
+      Serial.println(sessionArray[i].trackOne);
     }
-  
     root.rewindDirectory();
     root.close();
     
