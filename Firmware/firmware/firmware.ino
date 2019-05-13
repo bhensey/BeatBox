@@ -4,6 +4,7 @@
 #include <Audio.h>
 #include <SD.h>
 #include <SerialFlash.h>
+#include <Bounce.h>
 #define ENCODER_OPTIMIZE_INTERRUPTS
 #include <Encoder.h>
 #include <Adafruit_GFX.h>
@@ -33,9 +34,14 @@ AudioControlSGTL5000     sgtl5000_1;     //xy=252,427
 // GUItool: end automatically generated code
 
 // Use these with the Teensy Audio Shield
-#define SDCARD_CS_PIN    10
-#define SDCARD_MOSI_PIN  7
-#define SDCARD_SCK_PIN   14
+//#define SDCARD_CS_PIN    10
+//#define SDCARD_MOSI_PIN  7
+//#define SDCARD_SCK_PIN   14
+
+// Use these with the Teensy 3.6 SD card
+#define SDCARD_CS_PIN    BUILTIN_SDCARD
+#define SDCARD_MOSI_PIN  11 // not actually used
+#define SDCARD_SCK_PIN   13 // not actually used
 
 #define MENU_HOME           0
 #define MENU_SESSION_SEL    1
@@ -75,8 +81,11 @@ AudioControlSGTL5000     sgtl5000_1;     //xy=252,427
 #define MIN_BPM     40
 #define MAX_BPM     220
 
+#define MAX_SESSIONS  99
+
 // Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
 #define OLED_RESET     5 // Reset pin # (or -1 if sharing Arduino reset pin)
+
 
 // Data Structures
 struct date {
@@ -88,25 +97,20 @@ struct date {
   int year;
 };
 
-struct track {
-  int number;
-  bool mt;
+struct Track {
   bool mute;
-  int duration;
-  String filename;
+  String trackName;
 };
 
-struct session {
-  String session_name;
-  int duration;
-  track tracklist[];
-  date date_created;
-  date last_modified;
-};
-
-struct sessionView {
-  String session_name;
-  //date last_modified;
+struct Session {
+  String sessionName;
+  int sessionNum;
+  int sessionBPM;
+  int sessionLength;  // in beats
+  String trackOne;
+  String trackTwo;
+  String trackThree;
+  String trackFour;
 };
 
 struct globalConfig {
@@ -147,24 +151,22 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 IntervalTimer beatTimer;
 
-Encoder BPM_Enc(BPMPin1,BPMPin2);
-Encoder vol_Enc(volPin1,volPin2);
+Encoder BPM_Enc(BPMPin1, BPMPin2);
+Encoder vol_Enc(volPin1, volPin2);
 
 struct globalConfig statusBar = {85, 50, false};
 
-int menu_id; // current state of the menu
+int menu_id = 0; // current state of the menu
 
 int num_sessions; // number of existing sessions
 
-sessionView sessions[99]; // empty list of sessions
-
-session current_session; // current session we're in
+Session sessions[MAX_SESSIONS]; // empty list of sessions
 
 // menu selection global variables
 int selected_home_option = 0;
 int selected_setting = 0;
 int selected_session = 0;
-int viewable_sessions[] = {0,1,2};
+int viewable_sessions[] = {0, 1, 2};
 int selected_session_config_option = 0;
 int selected_track = 0;
 int selected_track_option = 0;
@@ -200,13 +202,13 @@ boolean VOL_B_set = false;
 boolean BPM_A_set = false;
 boolean BPM_B_set = false;
 
+File root;
+
 
 // SETUP AND LOOP FUNCTIONS
 void setup() {
   Serial.begin(9600);
-
-  Serial.println(timeStatus());
-  Serial.println("Current time: " + String(now()));
+  while (!Serial);
 
   AudioMemory(60); // Memory for all audio funcitons especially recording buffer
   sgtl5000_1.enable();
@@ -226,14 +228,14 @@ void setup() {
   mixer1.gain(1, 0.5); // Track 2
   mixer1.gain(2, 0.5); // Track 3
   mixer1.gain(3, 0.5); // Track 4
-  
+
   // Metronome Mixer
-  mixer2.gain(0,1);
+  mixer2.gain(0, 1);
 
   //Track and Metronome Mixer
   mixer3.gain(0, 0.4); // Track Mixer
   mixer3.gain(1, 0.7); // Metronome Mixer
-  
+
   // initialize pins as inputs:
   pinMode(leftButton, INPUT_PULLUP);
   pinMode(rightButton, INPUT_PULLUP);
@@ -242,15 +244,15 @@ void setup() {
   pinMode(clickButton, INPUT_PULLDOWN);
   pinMode(hapticButton, INPUT_PULLDOWN);
   pinMode(playrecButton, INPUT_PULLDOWN);
-  
-  pinMode(beatLED,OUTPUT);
-  pinMode(clickLED,OUTPUT);
-  pinMode(hapticLED,OUTPUT);
-  pinMode(recordingLED,OUTPUT);
+
+  pinMode(beatLED, OUTPUT);
+  pinMode(clickLED, OUTPUT);
+  pinMode(hapticLED, OUTPUT);
+  pinMode(recordingLED, OUTPUT);
 
   // initialize beat timer
-  beatTimer.begin(sendBeat, 0.5*(60*pow(10,6))/statusBar.bpm);
-  
+  beatTimer.begin(sendBeat, 0.5 * (60 * pow(10, 6)) / statusBar.bpm);
+
   // initialize ISRs
   attachInterrupt(digitalPinToInterrupt(leftButton), leftButton_ISR, FALLING);
   attachInterrupt(digitalPinToInterrupt(rightButton), rightButton_ISR, FALLING);
@@ -266,18 +268,32 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(BPMPin2), changeBPM_DOWN, CHANGE);
 
 
-  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3D)) { // Address 0x3D for 128x64
-    //Serial.println(F("SSD1306 allocation failed"));
-    for(;;); // Don't proceed, loop forever
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3D)) { // Address 0x3D for 128x64
+    Serial.println(F("SSD1306 allocation failed"));
+    for (;;); // Don't proceed, loop forever
   }
 
   display.clearDisplay();
   display.display();
 
+  deleteAll(); // deletes all sessions on the card (for testing purposes)
+
   // get session information from SD card
   num_sessions = getSessionOverview(sessions); // populates list of sessions, returns the number of sessions
 
-  menu_id = 0;
+  root = SD.open("Sessions");
+  for (int i = 0; i < num_sessions; i++) {
+    Serial.println(sessions[i].sessionName);
+    Serial.println(sessions[i].sessionBPM);
+    Serial.println(sessions[i].sessionLength);
+    Serial.println(sessions[i].trackOne);
+    Serial.println(sessions[i].trackTwo);
+    Serial.println(sessions[i].trackThree);
+    Serial.println(sessions[i].trackFour);
+  }
+  root.rewindDirectory();
+  root.close();
+
 }
 
 void loop() {
@@ -290,48 +306,48 @@ void drawStatusBar() {
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(WHITE);
-  
+
   //                x,y
-  display.setCursor(2,2);
+  display.setCursor(2, 2);
   display.cp437(true);
-  
+
   String BPM = "BPM:" + String(statusBar.bpm);
   display.println(BPM);
-  
+
   String VOL = "Vol:" + String(statusBar.vol);
-  display.setCursor(48,2);
+  display.setCursor(48, 2);
   display.println(VOL);
 
-  if(!statusBar.play_rec) {
-    display.setCursor(100,2);
+  if (!statusBar.play_rec) {
+    display.setCursor(100, 2);
     display.println("REC");
   } else {
-    display.setCursor(97,2);
+    display.setCursor(97, 2);
     display.println("Play");
   }
 
-  display.setCursor(122,2);
+  display.setCursor(122, 2);
   display.write(RIGHT_ARROW);
   display.drawLine(0, 9, 128, 9, WHITE);
 }
 
 void boxed_text(String text, int x_pos, int y_pos, bool selected) {
-  if(!selected) display.setTextColor(WHITE, BLACK);
-  else display.setTextColor(BLACK,WHITE);
+  if (!selected) display.setTextColor(WHITE, BLACK);
+  else display.setTextColor(BLACK, WHITE);
   int len = text.length();
   display.setCursor(x_pos, y_pos);
   display.println(text);
-  display.drawRect(x_pos-2, y_pos-2, len*7, 12, WHITE);
+  display.drawRect(x_pos - 2, y_pos - 2, len * 7, 12, WHITE);
   display.setTextColor(WHITE, BLACK);
 }
 
 void draw_level(String Name) {
-  display.setCursor(0,11);
+  display.setCursor(0, 11);
   display.println(Name);
 }
 
 void drawHome(uint8_t selected) {
-  uint8_t highlight = 0x8>>selected;
+  uint8_t highlight = 0x8 >> selected;
   draw_level("Home");
   boxed_text("New", 10, display.height() / 2 + 10, IS_SEL_LEFT(highlight));
   boxed_text("Files", 45, display.height() / 2 + 10, IS_SEL_CENTER(highlight));
@@ -341,13 +357,13 @@ void drawHome(uint8_t selected) {
 
 void centerText(String text, int y_pos) {
   int len = text.length();
-  int num_px = len*6;
-  display.setCursor(SCREEN_WIDTH/2 - num_px/2,y_pos);
+  int num_px = len * 6;
+  display.setCursor(SCREEN_WIDTH / 2 - num_px / 2, y_pos);
   display.println(text);
 }
 
 void drawSettings(uint8_t selected) {
-  uint8_t highlight = 0x8>>selected;
+  uint8_t highlight = 0x8 >> selected;
   draw_level("Preferences");
   boxed_text("Sound", 12, display.height() / 2 + 10, IS_SEL_LEFT(highlight));
   boxed_text("Reset", 51, display.height() / 2 + 10, IS_SEL_CENTER(highlight));
@@ -356,47 +372,47 @@ void drawSettings(uint8_t selected) {
 }
 
 void drawSessionSelect(uint8_t selected) {
-  uint8_t highlight = 0x8>>(selected-viewable_sessions[0]);
+  uint8_t highlight = 0x8 >> (selected - viewable_sessions[0]);
   draw_level("Session Select");
   if (num_sessions == 0) {
     // no sessions
   } else if (num_sessions == 1) {
-    String sess_l = "S" + String(viewable_sessions[0]+1);
+    String sess_l = "S" + String(sessions[viewable_sessions[0]].sessionNum);
     boxed_text(sess_l, 20, display.height() / 2 - 4, IS_SEL_LEFT(highlight));
   } else if (num_sessions == 2) {
-    String sess_l = "S" + String(viewable_sessions[0]+1);
-    String sess_c = "S" + String(viewable_sessions[1]+1);
+    String sess_l = "S" + String(sessions[viewable_sessions[0]].sessionNum);
+    String sess_c = "S" + String(sessions[viewable_sessions[1]].sessionNum);
     boxed_text(sess_l, 20, display.height() / 2 - 4, IS_SEL_LEFT(highlight));
     boxed_text(sess_c, 60, display.height() / 2 - 4, IS_SEL_CENTER(highlight));
   } else {
-    String sess_l = "S" + String(viewable_sessions[0]+1);
-    String sess_c = "S" + String(viewable_sessions[1]+1);
-    String sess_r = "S" + String(viewable_sessions[2]+1);
+    String sess_l = "S" + String(sessions[viewable_sessions[0]].sessionNum);
+    String sess_c = "S" + String(sessions[viewable_sessions[1]].sessionNum);
+    String sess_r = "S" + String(sessions[viewable_sessions[2]].sessionNum);
     boxed_text(sess_l, 20, display.height() / 2 - 4, IS_SEL_LEFT(highlight));
     boxed_text(sess_c, 60, display.height() / 2 - 4, IS_SEL_CENTER(highlight));
     boxed_text(sess_r, 100, display.height() / 2 - 4, IS_SEL_RIGHT(highlight));
   }
-  if(viewable_sessions[0] > 0) { // left arrow
-    display.setCursor(2,display.height() / 2 - 4);
+  if (viewable_sessions[0] > 0) { // left arrow
+    display.setCursor(2, display.height() / 2 - 4);
     display.write(LEFT_ARROW);
-    
+
   }
-  if(viewable_sessions[2] < num_sessions-1) { // right arrow
-    display.setCursor(122,display.height() / 2 - 4);
+  if (viewable_sessions[2] < num_sessions - 1) { // right arrow
+    display.setCursor(122, display.height() / 2 - 4);
     display.write(RIGHT_ARROW);
   }
 
-  centerText(sessions[selected_session].session_name, 40);
+  centerText(sessions[selected_session].sessionName, 40);
   display.display();
 }
 
 void drawSessionConfig(int session_number, bool highlight) {
   draw_level("Session Config");
-  String sess = "S" + String(session_number+1); 
+  String sess = "S" + String(session_number);
   boxed_text(sess, display.width() / 2 - 10, display.height() / 2 - 4, false);
   boxed_text("Open", 25, display.height() / 2 + 10, !highlight);
   int posn_x = 67;
-  if(sess.length() > 2) posn_x = 74;
+  if (sess.length() > 2) posn_x = 74;
   boxed_text("Delete", posn_x, display.height() / 2 + 10, highlight);
   display.display();
 }
@@ -404,30 +420,30 @@ void drawSessionConfig(int session_number, bool highlight) {
 void drawTrackSelect(uint8_t existing_tracks, uint8_t highlight) {
   draw_level("Track Select");
   String track_dne = " + ";
-  if(IS_SEL_LEFT(existing_tracks)) {
+  if (IS_SEL_LEFT(existing_tracks)) {
     boxed_text("T1", 10, display.height() - 20, IS_SEL_LEFT(highlight));
   } else {
     boxed_text(track_dne, 10, display.height() - 20, IS_SEL_LEFT(highlight));
   }
 
-  if(IS_SEL_CENTER(existing_tracks)) {
-     boxed_text("T2", 40, display.height() - 20, IS_SEL_CENTER(highlight));
+  if (IS_SEL_CENTER(existing_tracks)) {
+    boxed_text("T2", 40, display.height() - 20, IS_SEL_CENTER(highlight));
   } else {
-     boxed_text(track_dne, 40, display.height() - 20, IS_SEL_CENTER(highlight));
+    boxed_text(track_dne, 40, display.height() - 20, IS_SEL_CENTER(highlight));
   }
 
-  if(IS_SEL_RIGHT(existing_tracks)) {
-     boxed_text("T3", 70, display.height() - 20, IS_SEL_RIGHT(highlight));
+  if (IS_SEL_RIGHT(existing_tracks)) {
+    boxed_text("T3", 70, display.height() - 20, IS_SEL_RIGHT(highlight));
   } else {
-     boxed_text(track_dne, 70, display.height() - 20, IS_SEL_RIGHT(highlight));
+    boxed_text(track_dne, 70, display.height() - 20, IS_SEL_RIGHT(highlight));
   }
 
-  if(IS_SEL_FAR_RIGHT(existing_tracks)) {
-     boxed_text("T4", 100, display.height() - 20, IS_SEL_FAR_RIGHT(highlight));
+  if (IS_SEL_FAR_RIGHT(existing_tracks)) {
+    boxed_text("T4", 100, display.height() - 20, IS_SEL_FAR_RIGHT(highlight));
   } else {
-     boxed_text(track_dne, 100, display.height() - 20, IS_SEL_FAR_RIGHT(highlight));
+    boxed_text(track_dne, 100, display.height() - 20, IS_SEL_FAR_RIGHT(highlight));
   }
-  
+
   display.display();
 }
 
@@ -436,17 +452,17 @@ void drawTrackOptions(uint8_t track_no, uint8_t highlight) {
   String track = "T" + String(track_no);
   boxed_text(track, display.width() / 2 - 10, display.height() - 25, false);
   boxed_text("Mute", 25, display.height() - 10, IS_SEL_LEFT(highlight));
-  int posn_x = 67; 
-  if(track.length() > 2) posn_x = 74;
+  int posn_x = 67;
+  if (track.length() > 2) posn_x = 74;
   boxed_text("Delete", posn_x, display.height() - 10, IS_SEL_RIGHT(highlight));
   display.display();
 }
 
 void drawStorageLimit() {
   display.clearDisplay();
-  display.setCursor(display.width()/2-20, 0);
+  display.setCursor(display.width() / 2 - 20, 0);
   display.println("Warning!");
-  display.setCursor(2,13);
+  display.setCursor(2, 13);
   display.println("Storage Limit Reached\nLess than 100MB free.\nDelete or export\ncontent.");
   display.drawRect(0, 11, 128, 50, WHITE);
   display.display();
@@ -472,14 +488,19 @@ void updateDisplay() {
       }
       if (select_pressed_flag) {
         // either create new session, show existing sessions, or go to settings
-        if (selected_home_option == NEW_SESSION) {  
-          menu_id = MENU_SESSION_CONFIG;
-          newSession();
-          selected_session = num_sessions + 1; // this could be done in newSession() if we want
-          // ADD A NEW SESSION TO MEMORY (TODO)
+        if (selected_home_option == NEW_SESSION) {
+          int newSessionNum = findNewSession();
+          if (newSessionNum > 0) {
+            createSession(newSessionNum);
+            menu_id = MENU_SESSION_CONFIG;
+          } else {
+            // no room for sessions
+          }
+          
         }
         else if (selected_home_option == EXISTING_SESSION) {
           menu_id = MENU_SESSION_SEL;
+          Serial.println("Selected session: " + String(selected_session));
         }
         else if (selected_home_option == SETTINGS) {
           menu_id = MENU_SETTINGS;
@@ -489,7 +510,6 @@ void updateDisplay() {
       // OTHER FUNCTIONALITY
       if (play_rec_pressed_flag) {
         // quick record pressed - new session with new track
-        newQuickSession();
         play_rec_pressed_flag = false;
       }
       break;
@@ -522,7 +542,6 @@ void updateDisplay() {
       // OTHER FUNCTIONALITY
       if (play_rec_pressed_flag) {
         // quick record pressed - new session with new track
-        newQuickSession();
         play_rec_pressed_flag = false;
       }
       break;
@@ -531,8 +550,9 @@ void updateDisplay() {
       drawSessionSelect(selected_session);
       // MENU NAVIGATION
       if (right_pressed_flag) {
-        if (selected_session < num_sessions-1) {
+        if (selected_session < num_sessions - 1) {
           selected_session++;
+          Serial.println("Selected session: " + String(selected_session));
         }
         if (selected_session > viewable_sessions[2]) {
           viewable_sessions[0]++;
@@ -544,6 +564,7 @@ void updateDisplay() {
       if (left_pressed_flag) {
         if (selected_session > 0) {
           selected_session--;
+          Serial.println("Selected session: " + String(selected_session));
         }
         if (selected_session < viewable_sessions[0]) {
           viewable_sessions[0]--;
@@ -554,24 +575,25 @@ void updateDisplay() {
       }
       if (back_pressed_flag) {
         menu_id = MENU_HOME;
+        selected_home_option = EXISTING_SESSION;
         back_pressed_flag = false;
       }
       if (select_pressed_flag) {
         // enter session options
         menu_id = MENU_SESSION_CONFIG;
+        selected_session_config_option = SESSION_OPEN;
         select_pressed_flag = false;
       }
 
       // OTHER FUNCTIONALITY
       if (play_rec_pressed_flag) {
         // quick record pressed - new session with new track
-        newQuickSession();
         play_rec_pressed_flag = false;
       }
       break;
 
     case (MENU_SESSION_CONFIG):                               // SESSION CONFIG
-      drawSessionConfig(selected_session, selected_session_config_option);
+      drawSessionConfig(sessions[selected_session].sessionNum, selected_session_config_option);
       // MENU NAVIGATION
       if (right_pressed_flag) {
         if (selected_session_config_option < 1) {
@@ -692,31 +714,243 @@ void updateDisplay() {
 }
 
 
-// CORE FUNCTIONS
-int getSessionOverview(sessionView sessions_list[]) {
-  // currently creates a dummy list of 5 sessions
-  String s = "Session ";
-  String n;
-  for (int i = 0; i < 5; i++) {
-    n = s + (i+1);
-    sessions_list[i] = {n};
+// File System Functions
+
+//
+// HELPER FUNCTIONS
+//
+void getTrackFilepath(int trackNumber) {
+  // Use global variable selected_session
+  // session/track.raw
+  String fileString = "Sessions/";
+  fileString += selected_session;
+  fileString += "/";
+  fileString += trackNumber;
+  fileString += ".wav";
+  char filename[50];
+  fileString.toCharArray(filename, 50);
+  Serial.println(filename);
+}
+
+bool fileExists(char dir[]) {
+  if (SD.exists(dir)) {
+    return 1;
   }
-  return 5;
-}
-void newSession() {
-
-}
-
-void newQuickSession() {
-
+  else {
+    return 0;
+  }
 }
 
-void enterSession() {
+//
+// RETURN POINTER TO AN ARRAY OF EVERY EXISTING SESSION
+//
+int getSessionOverview(Session *sessionArray) {
+  // Scan SD card and return a pointer to an array of every existing session in order
+  Serial.println("Running getSessionOverview...");
+  int numSessions = 0;
+  File dir = SD.open("Sessions");
+  while (true) {
+    File entry =  dir.openNextFile();
+    if (! entry) {
+      // no more files
+      break;
+    }
+    Session newSession = getSession(entry.name());
+    Serial.println("Session Name: " + newSession.sessionName);
+    sessionArray[numSessions] = newSession;
 
+    numSessions += 1;
+    entry.close();
+  }
+
+  return numSessions;
 }
 
-void deleteSession() {
+//
+// READ LINE FROM FILE AND RETURN STRING
+//
+String readLine(File readFile) {
+  String output = "";
+  int fileChar = readFile.read();
+  while (fileChar != -1 && fileChar != 44) {
+    output += char(fileChar);
+    fileChar = readFile.read();
+  }
+  return output;
+}
 
+//
+// GET METADATA
+//
+Session getSession(String sessionName) {
+  char filename[50];
+  String fileString;
+  fileString = "Sessions/";
+  fileString += sessionName;
+  fileString += "/meta";
+  fileString.toCharArray(filename, 50);
+  File metaFile = SD.open(filename);
+  Session newSession = {
+    sessionName : readLine(metaFile),      // Name
+    sessionNum : readLine(metaFile).toInt(),  // Number
+    sessionBPM : readLine(metaFile).toInt(),  // BPM
+    sessionLength : readLine(metaFile).toInt(),   // Length
+    trackOne: readLine(metaFile),
+    trackTwo: readLine(metaFile),
+    trackThree: readLine(metaFile),
+    trackFour: readLine(metaFile)
+  };
+  metaFile.close();
+
+  return newSession;
+}
+
+
+//
+// INITIALIZE NEW TRACK
+//
+void createSession(int sessionNum) {
+  // Creating file structure of new session
+  String fileString = "Sessions/";
+  fileString += sessionNum;
+  char filename[50];
+  fileString.toCharArray(filename, 50);
+  SD.mkdir(filename);
+  if (fileExists(filename)) {
+    Serial.printf("%s is created \n", filename);
+  }
+  else {
+    Serial.printf("Error creating %s\n", filename);
+  }
+  fileString += "/meta";
+  fileString.toCharArray(filename, 50);
+  writeMetadata(filename, sessionNum);
+
+  // Update global data
+  num_sessions = getSessionOverview(sessions);
+  selected_session = findIndex(sessionNum);
+  if (num_sessions >= 3) {
+    if (selected_session > viewable_sessions[2]) {
+      viewable_sessions[0] = selected_session - 2;
+      viewable_sessions[1] = selected_session - 1;
+      viewable_sessions[2] = selected_session;
+    } else if (selected_session < viewable_sessions[0]) {
+      viewable_sessions[0] = selected_session;
+      viewable_sessions[1] = selected_session + 1;
+      viewable_sessions[2] = selected_session + 2;
+    }
+  }
+}
+
+void writeMetadata(char* filename, int sessionNum) {
+  File dataFile = SD.open(filename, FILE_WRITE);
+  if (dataFile) {
+    dataFile.print("Session_" + String(sessionNum) + ','); // Name
+    dataFile.print(String(sessionNum) + ","); // Number
+    dataFile.print("85,"); // BPM
+    dataFile.print("16,"); // Length
+    dataFile.print("1.RAW,2.RAW,3.RAW,4.RAW"); // Four Tracks
+    dataFile.close();
+  }
+  else {
+    Serial.println("Error opening filename in writeMetadata");
+  }
+}
+
+//
+// DELETE SESSION FILES AND FOLDER
+//
+void deleteSession(int sessionNum) {
+  String fileString = "Sessions/";
+  fileString += sessionNum;
+  String tmpString = fileString;
+  char filename[50];
+  fileString.toCharArray(filename, 50);
+  File dir = SD.open(filename);
+  // Delete all
+  while (true) {
+    File entry = dir.openNextFile();
+    if (! entry) {
+      // no more files
+      break;
+    }
+    tmpString += "/";
+    tmpString += entry.name();
+    tmpString.toCharArray(filename, 50);
+    SD.remove(filename);
+    Serial.println("Removed file");
+  }
+  fileString.toCharArray(filename, 50);
+  SD.rmdir(filename);
+  if (! fileExists(filename)) {
+    Serial.printf("Directory %s is removed\n", filename);
+  }
+  else {
+    Serial.printf("ERROR: The session %s was not removed\n", filename);
+  }
+}
+
+//
+// DEBUGGING: PRINT FILE SYSTEM
+//
+void printDirectory(File dir, int numTabs) {
+  while (true) {
+
+    File entry =  dir.openNextFile();
+    if (! entry) {
+      // no more files
+      break;
+    }
+    for (uint8_t i = 0; i < numTabs; i++) {
+      Serial.print('\t');
+    }
+    Serial.print(entry.name());
+    if (entry.isDirectory()) {
+      Serial.println("/");
+      printDirectory(entry, numTabs + 1);
+    } else {
+      // files have sizes, directories do not
+      Serial.print("\t\t");
+      Serial.println(entry.size(), DEC);
+    }
+    entry.close();
+  }
+}
+
+void deleteAll() {
+  for (int i = -2; i < MAX_SESSIONS; i++) {
+    deleteSession(i + 1);
+  }
+}
+
+int findIndex(int value)
+{
+  int index = 0;
+  while (index < num_sessions && sessions[index].sessionNum != value) ++index;
+  Serial.println("Index: " + String(index));
+  return index;
+}
+
+// CORE FUNCTIONS
+int findNewSession() {
+  int newSessionNum = -1;
+  if (num_sessions < MAX_SESSIONS) {
+    if (num_sessions == 0 || (num_sessions > 0 && sessions[0].sessionNum > 1)) {
+      // new session is before all existing sessions
+      newSessionNum = 1;
+    } else if (num_sessions == 1) {
+      newSessionNum = sessions[0].sessionNum + 1;
+    } else {
+      for (int i = 0; i < num_sessions; i++) {
+        if (i == num_sessions - 1 || sessions[i].sessionNum + 1 < sessions[i+1].sessionNum) {
+          newSessionNum = sessions[i].sessionNum + 1;
+          break;
+        }
+      }
+    }
+  }
+  Serial.println("New Session: " + String(newSessionNum));
+  return newSessionNum;
 }
 
 void newTrack() {
@@ -763,23 +997,23 @@ void enterSetting() {
 // Interrupt Service Routines
 void debounce_normal(bool &flag, String message) {
   unsigned long interrupt_time = millis();
-  if (interrupt_time - last_interrupt_time > INTERRUPT_THRESHOLD) 
+  if (interrupt_time - last_interrupt_time > INTERRUPT_THRESHOLD)
   {
-   flag = true;
-   //Serial.println(message);
+    flag = true;
+    //Serial.println(message);
   }
   last_interrupt_time = interrupt_time;
 }
 
 void debounce_toggle(bool& flag, int pin, String message) {
   unsigned long interrupt_time = millis();
-  if(interrupt_time - last_interrupt_time > INTERRUPT_THRESHOLD) {
+  if (interrupt_time - last_interrupt_time > INTERRUPT_THRESHOLD) {
     flag = !flag;
     if (flag) {
-      digitalWrite(pin,HIGH);
+      digitalWrite(pin, HIGH);
       //Serial.println(message + "->on");
     } else {
-      digitalWrite(pin,LOW);
+      digitalWrite(pin, LOW);
       //Serial.println(message + "->off");
     }
   }
@@ -847,11 +1081,11 @@ void changeBPM_UP() {
 }
 
 void handleStatus() {
-  if(VOL_encoderPos > 201) VOL_encoderPos = MIN_VOL;
-  if(VOL_encoderPos > MAX_VOL) VOL_encoderPos = MAX_VOL;
-    
-  if(BPM_encoderPos < MIN_BPM) BPM_encoderPos = MIN_BPM;
-  if(BPM_encoderPos > MAX_BPM) BPM_encoderPos = MAX_BPM;
+  if (VOL_encoderPos > 201) VOL_encoderPos = MIN_VOL;
+  if (VOL_encoderPos > MAX_VOL) VOL_encoderPos = MAX_VOL;
+
+  if (BPM_encoderPos < MIN_BPM) BPM_encoderPos = MIN_BPM;
+  if (BPM_encoderPos > MAX_BPM) BPM_encoderPos = MAX_BPM;
   statusBar.vol = VOL_encoderPos;
   changeVol();
 
@@ -862,11 +1096,11 @@ void handleStatus() {
 void sendBeat() {
   // blink LED
   if (beat_LED_enable) {
-     digitalWrite(beatLED,LOW);
-     beat_LED_enable = false;
+    digitalWrite(beatLED, LOW);
+    beat_LED_enable = false;
   } else {
-     digitalWrite(beatLED,HIGH);
-     beat_LED_enable = true;
+    digitalWrite(beatLED, HIGH);
+    beat_LED_enable = true;
   }
   // conditionally send click
   if (click_enable && beat_LED_enable) {
@@ -878,11 +1112,11 @@ void sendBeat() {
   }
 }
 void changeBPM() {
-  beatTimer.update((0.5*60*pow(10,6))/statusBar.bpm);
+  beatTimer.update((0.5 * 60 * pow(10, 6)) / statusBar.bpm);
 }
 void changeVol() {
-  float newVol = float(statusBar.vol)/MAX_VOL;
-  mixer3.gain(0, newVol*2/3); // Track Mixer
+  float newVol = float(statusBar.vol) / MAX_VOL;
+  mixer3.gain(0, newVol * 2 / 3); // Track Mixer
   mixer3.gain(1, newVol); // Metronome Mixer
 }
 void leftButton_ISR() {
