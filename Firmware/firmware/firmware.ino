@@ -5,6 +5,7 @@
 #include <SD.h>
 #include <SerialFlash.h>
 #define ENCODER_OPTIMIZE_INTERRUPTS
+#include "SoftwareSerial.h"
 #include <Encoder.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
@@ -145,6 +146,8 @@ IntervalTimer beatTimer;
 Encoder BPM_Enc(BPMPin1,BPMPin2);
 Encoder vol_Enc(volPin1,volPin2);
 
+SoftwareSerial XBee(33, 34);
+
 struct globalConfig statusBar = {85, 50, false};
 
 int menu_id; // current state of the menu
@@ -270,6 +273,8 @@ void setup() {
 
   display.clearDisplay();
   display.display();
+
+  XBee.begin(115200);
 
   // get session information from SD card
   num_sessions = getSessionOverview(sessions); // populates list of sessions, returns the number of sessions
@@ -869,6 +874,12 @@ void sendBeat() {
     playMem1.play(AudioSampleMetronome);
   }
   // conditionally send pulse to haptic
+  if(haptic_enable && beat_LED_enable) {
+    XBee.write(1);
+  } else {//if(haptic_enable) {
+    XBee.write(2);
+  }
+  
 }
 void changeBPM() {
   // update statusBar.bpm with new value
