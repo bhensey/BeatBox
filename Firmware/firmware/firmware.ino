@@ -280,8 +280,10 @@ void setup() {
   display.display();
 
   XBee.begin(115200);
-  deleteAll(); // deletes all sessions on the card (for testing purposes)
 
+  deleteAll(); // deletes all sessions on the card (for testing purposes)
+  createSession(2);
+  
   // get session information from SD card
   num_sessions = getSessionOverview(sessions); // populates list of sessions, returns the number of sessions
 
@@ -618,10 +620,11 @@ void updateDisplay() {
       if (select_pressed_flag) {
         // either open or delete
         if (selected_session_config_option == SESSION_OPEN) {
-          //enterSession(sessions[selected_session-1]);
+          //enterSession(sessions[selected_session]);
         }
         if (selected_session_config_option == SESSION_DELETE) {
-          //deleteSession(sessions[selected_session-1]);
+          deleteSession(sessions[selected_session].sessionNum);
+          menu_id = MENU_SESSION_SEL;
         }
         select_pressed_flag = false;
       }
@@ -648,7 +651,7 @@ void updateDisplay() {
       }
       if (back_pressed_flag) {
         menu_id = MENU_SESSION_CONFIG;
-        selected_session_config_option = 1;
+        selected_session_config_option = SESSION_OPEN;
         back_pressed_flag = false;
       }
       if (select_pressed_flag) {
@@ -745,6 +748,25 @@ bool fileExists(char dir[]) {
   }
 }
 
+void deleteAll() {
+  for (int i = -2; i < MAX_SESSIONS; i++) {
+    deleteSession(i + 1);
+  }
+}
+
+int findIndex(int value)
+{
+  int index = 0;
+  while (index < num_sessions && sessions[index].sessionNum != value) ++index;
+  Serial.println("Index: " + String(index));
+  return index;
+}
+
+int compare(const void *a, const void *b) {
+  return (((struct Session *)a)->sessionNum - ((struct Session *)b)->sessionNum);
+}
+
+
 //
 // RETURN POINTER TO AN ARRAY OF EVERY EXISTING SESSION
 //
@@ -765,6 +787,10 @@ int getSessionOverview(Session *sessionArray) {
 
     numSessions += 1;
     entry.close();
+  }
+
+  if (numSessions > 1) {
+    qsort(sessionArray, numSessions, sizeof(struct Session), compare);
   }
 
   return numSessions;
@@ -892,6 +918,23 @@ void deleteSession(int sessionNum) {
   else {
     Serial.printf("ERROR: The session %s was not removed\n", filename);
   }
+
+  // Update global data
+  num_sessions = getSessionOverview(sessions);
+  if (selected_session > 0) {
+    selected_session--;
+  }
+  if (num_sessions >= 3) {
+    if (selected_session > viewable_sessions[2]) {
+      viewable_sessions[0] = selected_session - 2;
+      viewable_sessions[1] = selected_session - 1;
+      viewable_sessions[2] = selected_session;
+    } else if (selected_session < viewable_sessions[0]) {
+      viewable_sessions[0] = selected_session;
+      viewable_sessions[1] = selected_session + 1;
+      viewable_sessions[2] = selected_session + 2;
+    }
+  }
 }
 
 //
@@ -921,19 +964,6 @@ void printDirectory(File dir, int numTabs) {
   }
 }
 
-void deleteAll() {
-  for (int i = -2; i < MAX_SESSIONS; i++) {
-    deleteSession(i + 1);
-  }
-}
-
-int findIndex(int value)
-{
-  int index = 0;
-  while (index < num_sessions && sessions[index].sessionNum != value) ++index;
-  Serial.println("Index: " + String(index));
-  return index;
-}
 
 // CORE FUNCTIONS
 int findNewSession() {
