@@ -55,6 +55,8 @@ AudioControlSGTL5000     sgtl5000_1;     //xy=252,427
 #define ARE_YOU_SURE                8
 #define MENU_SET_DEFAULT_NUM_BEATS  9
 #define ERROR_MENU                  10
+#define MENU_SET_DEF_BPM            11
+#define MENU_SET_DEF_LOOP_LEN       12
 
 #define NEW_SESSION       0
 #define EXISTING_SESSION  1
@@ -62,6 +64,10 @@ AudioControlSGTL5000     sgtl5000_1;     //xy=252,427
 
 #define SESSION_OPEN      0
 #define SESSION_DELETE    1
+
+#define BEAT_SOUND        0
+#define DEFAULT_BPM       1
+#define DEFAULT_LOOP_LEN  2
 
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
@@ -78,7 +84,7 @@ AudioControlSGTL5000     sgtl5000_1;     //xy=252,427
 #define IS_SEL_RIGHT(n)      (!!(n & RIGHT))
 #define IS_SEL_FAR_RIGHT(n)  (!!(n & FAR_RIGHT))
 
-#define INTERRUPT_THRESHOLD   200
+#define INTERRUPT_THRESHOLD   100
 
 #define MIN_VOL     0
 #define MAX_VOL     100
@@ -160,7 +166,9 @@ Encoder vol_Enc(volPin1, volPin2);
 
 SoftwareSerial XBee(33, 34);
 
-struct globalConfig statusBar = {85, 50, false};
+uint8_t bpm = 85;
+uint8_t vol = 50;
+struct globalConfig statusBar = {bpm, vol, false};
 
 int menu_id = 0; // current state of the menu
 
@@ -379,7 +387,7 @@ void drawSettings(uint8_t selected) {
   uint8_t highlight = 0x8 >> selected;
   draw_level("Preferences");
   boxed_text("Sound", 12, display.height() / 2 + 10, IS_SEL_LEFT(highlight));
-  boxed_text("Reset", 51, display.height() / 2 + 10, IS_SEL_CENTER(highlight));
+  boxed_text("BPM", 57, display.height() / 2 + 10, IS_SEL_CENTER(highlight));
   boxed_text("Loop", 91, display.height() / 2 + 10, IS_SEL_RIGHT(highlight));
   display.display();
 }
@@ -471,12 +479,13 @@ void drawTrackOptions(uint8_t track_no, uint8_t highlight) {
   display.display();
 }
 
-void drawStorageLimit() {
+void drawStorageLimit(String text) {
   display.clearDisplay();
   display.setCursor(display.width() / 2 - 20, 0);
   display.println("Warning!");
   display.setCursor(2, 13);
-  display.println("Storage Limit Reached\nLess than 100MB free.\nDelete or export\ncontent.");
+  display.println(text);
+//  display.println("Storage Limit Reached\nLess than 100MB free.\nDelete or export\ncontent.");
   display.drawRect(0, 11, 128, 50, WHITE);
   display.display();
 }
@@ -508,7 +517,7 @@ void areYouSure(bool yes) {
 void updateDisplay() {
   drawStatusBar();
   switch (menu_id) {
-    case (MENU_HOME):                               // HOME
+    case (MENU_HOME): {                              // HOME
       drawHome(selected_home_option);
       // MENU NAVIGATION
       if (right_pressed_flag) {
@@ -545,6 +554,7 @@ void updateDisplay() {
         play_rec_pressed_flag = false;
       }
       break;
+    }
 
     case (MENU_SET_DEFAULT_NUM_BEATS): {
       drawSelectOption(String(session_length), "Set Default # Beats");
@@ -556,8 +566,7 @@ void updateDisplay() {
 //            menu_id = MENU_RECORDING;
           } else {
             menu_id = ERROR_MENU;
-          }
-        
+          } 
        }
 
        if(left_pressed_flag) {
@@ -575,6 +584,70 @@ void updateDisplay() {
        if(back_pressed_flag) {
         menu_id = MENU_HOME;
         back_pressed_flag = false;
+       }
+      break;
+    }
+
+    case (MENU_SET_DEF_BPM): {
+      drawSelectOption(String(statusBar.bpm), "Set Default BPM");
+       if (select_pressed_flag) {
+          menu_id = MENU_SETTINGS;
+          select_pressed_flag = false;
+       }
+
+       if (left_pressed_flag) {
+          BPM_encoderPos--;
+          left_pressed_flag = false;
+       }
+
+       if (right_pressed_flag) {
+          BPM_encoderPos++;
+          right_pressed_flag = false;
+       }
+      break;
+    }
+
+    case (MENU_SET_DEF_LOOP_LEN): {
+      drawSelectOption(String(session_length), "Default Loop Length");
+       if (select_pressed_flag) {
+          menu_id = MENU_SETTINGS;
+          select_pressed_flag = false;
+       }
+
+       if (left_pressed_flag) {
+        if(session_length > 1) {
+          session_length--;
+        }
+          left_pressed_flag = false;
+       }
+
+       if (right_pressed_flag) {
+            session_length++;
+          right_pressed_flag = false;
+       }
+      break;
+    }
+
+    case (ERROR_MENU): {
+      drawStorageLimit("Session Limit Reached!\nDelete or export content!");
+      if(left_pressed_flag) {
+        menu_id = MENU_HOME;
+        left_pressed_flag = false;
+       }
+
+        if(right_pressed_flag) {
+         menu_id = MENU_HOME;
+        right_pressed_flag = false;
+       }
+
+       if(back_pressed_flag) {
+        menu_id = MENU_HOME;
+        back_pressed_flag = false;
+       }
+
+       if(select_pressed_flag) {
+        menu_id = MENU_HOME;
+        select_pressed_flag = false;
        }
       break;
     }
@@ -600,7 +673,7 @@ void updateDisplay() {
       }
       if (select_pressed_flag) {
         // enter setting options
-        //enterSetting(selected_setting);
+        enterSetting(selected_setting);
         select_pressed_flag = false;
       }
 
@@ -1112,8 +1185,23 @@ void stopRecording() {
 
 }
 
-void enterSetting() {
-
+void enterSetting(int selected_setting) {
+  switch(selected_setting) {
+    case(BEAT_SOUND): {
+      break;
+    }
+    case(DEFAULT_BPM): {
+      menu_id = MENU_SET_DEF_BPM;
+      break;
+    }
+    case(DEFAULT_LOOP_LEN): {
+      menu_id = MENU_SET_DEF_LOOP_LEN;
+      break;
+    }
+    default: {
+      Serial.println("ERROR");
+    }
+  }
 }
 
 
