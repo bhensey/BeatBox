@@ -44,14 +44,17 @@ AudioControlSGTL5000     sgtl5000_1;     //xy=252,427
 #define SDCARD_MOSI_PIN  11 // not actually used
 #define SDCARD_SCK_PIN   13 // not actually used
 
-#define MENU_HOME           0
-#define MENU_SESSION_SEL    1
-#define MENU_SESSION        2
-#define MENU_SESSION_CONFIG 3
-#define MENU_NEW_SESSION    4
-#define MENU_TRACK_SEL      5
-#define MENU_TRACK_CONFIG   6
-#define MENU_SETTINGS       7
+#define MENU_HOME                   0
+#define MENU_SESSION_SEL            1
+#define MENU_SESSION                2
+#define MENU_SESSION_CONFIG         3
+#define MENU_NEW_SESSION            4
+#define MENU_TRACK_SEL              5
+#define MENU_TRACK_CONFIG           6
+#define MENU_SETTINGS               7
+#define ARE_YOU_SURE                8
+#define MENU_SET_DEFAULT_NUM_BEATS  9
+#define ERROR_MENU                  10
 
 #define NEW_SESSION       0
 #define EXISTING_SESSION  1
@@ -193,17 +196,21 @@ char track3[] = "SDTEST3.WAV";
 char track4[] = "SDTEST4.WAV";
 
 volatile unsigned int VOL_encoderPos = statusBar.vol;  // a counter for the dial
-static boolean VOL_rotating = false;                   // debounce management
+static bool VOL_rotating = false;                   // debounce management
 
 volatile unsigned int BPM_encoderPos = statusBar.bpm;  // a counter for the dial
-static boolean BPM_rotating = false;                   // debounce management
+static bool BPM_rotating = false;                   // debounce management
 
 // interrupt service routine vars
-boolean VOL_A_set = false;
-boolean VOL_B_set = false;
+bool VOL_A_set = false;
+bool VOL_B_set = false;
 
-boolean BPM_A_set = false;
-boolean BPM_B_set = false;
+bool BPM_A_set = false;
+bool BPM_B_set = false;
+
+bool are_you_sure = false;
+
+uint16_t session_length = 16;
 
 File root;
 
@@ -282,7 +289,7 @@ void setup() {
   XBee.begin(115200);
 
   deleteAll(); // deletes all sessions on the card (for testing purposes)
-  createSession(2);
+  createSession(2,16);
   
   // get session information from SD card
   num_sessions = getSessionOverview(sessions); // populates list of sessions, returns the number of sessions
@@ -483,8 +490,8 @@ void drawSelectOption(String sel_option, String text) {
     int len = sel_option.length();
     int num_px = len*6;
     centerText(sel_option, display.height() / 2 + 8);
-    display.drawLine(SCREEN_WIDTH/2 - num_px/2, display.height() / 2 + 16, SCREEN_WIDTH/2 - num_px/2+len*7 , display.height() / 2 + 16, WHITE);
-    
+    display.drawLine(SCREEN_WIDTH/2 - num_px/2-4, display.height() / 2 + 16, SCREEN_WIDTH/2 - num_px/2+len*7 , display.height() / 2 + 16, WHITE);
+    boxed_text("Ok", 60, display.height() / 2 + 24, true);
     display.setCursor(122, display.height() / 2 + 8);
     display.write(RIGHT_ARROW);
     display.display();
@@ -519,13 +526,8 @@ void updateDisplay() {
       if (select_pressed_flag) {
         // either create new session, show existing sessions, or go to settings
         if (selected_home_option == NEW_SESSION) {
-          int newSessionNum = findNewSession();
-          if (newSessionNum > 0) {
-            createSession(newSessionNum);
-            menu_id = MENU_SESSION_CONFIG;
-          } else {
-            // no room for sessions
-          }
+          menu_id = MENU_SET_DEFAULT_NUM_BEATS;
+          
 
         }
         else if (selected_home_option == EXISTING_SESSION) {
@@ -543,6 +545,39 @@ void updateDisplay() {
         play_rec_pressed_flag = false;
       }
       break;
+
+    case (MENU_SET_DEFAULT_NUM_BEATS): {
+      drawSelectOption(String(session_length), "Set Default # Beats");
+       if (select_pressed_flag) {
+        int newSessionNum = findNewSession();
+          if (newSessionNum > 0) {
+            createSession(newSessionNum, session_length);
+            select_pressed_flag = false;
+//            menu_id = MENU_RECORDING;
+          } else {
+            menu_id = ERROR_MENU;
+          }
+        
+       }
+
+       if(left_pressed_flag) {
+        if(session_length > 1) {
+          session_length--;
+        } else session_length = 1;
+        left_pressed_flag = false;
+       }
+
+        if(right_pressed_flag) {
+        session_length++;
+        right_pressed_flag = false;
+       }
+
+       if(back_pressed_flag) {
+        menu_id = MENU_HOME;
+        back_pressed_flag = false;
+       }
+      break;
+    }
 
     case (MENU_SETTINGS):                               // SETTINGS
       drawSettings(selected_setting);
@@ -644,11 +679,13 @@ void updateDisplay() {
       if (select_pressed_flag) {
         // either open or delete
         if (selected_session_config_option == SESSION_OPEN) {
+          
           //enterSession(sessions[selected_session]);
         }
         if (selected_session_config_option == SESSION_DELETE) {
-          deleteSession(sessions[selected_session].sessionNum);
-          menu_id = MENU_SESSION_SEL;
+          menu_id = ARE_YOU_SURE;
+//          deleteSession(sessions[selected_session].sessionNum);
+//          menu_id = MENU_SESSION_SEL;
         }
         select_pressed_flag = false;
       }
@@ -662,6 +699,34 @@ void updateDisplay() {
         play_rec_pressed_flag = false;
       }
       break;
+
+    case (ARE_YOU_SURE): {
+      areYouSure(are_you_sure);
+      if (select_pressed_flag && !are_you_sure) {
+        menu_id = MENU_SESSION_SEL;
+        select_pressed_flag = false;
+      }
+      if (select_pressed_flag && are_you_sure) {
+        menu_id = MENU_SESSION_SEL;
+        deleteSession(sessions[selected_session].sessionNum);
+        select_pressed_flag = false;
+        are_you_sure = false;
+      }
+      
+      if (back_pressed_flag) {
+        menu_id = MENU_SESSION_SEL;
+        back_pressed_flag = false;
+      }
+      if (left_pressed_flag) {
+        are_you_sure = true;
+        left_pressed_flag = false; 
+      }
+      if (right_pressed_flag) {
+        are_you_sure = false;
+        right_pressed_flag = false;
+      }
+      break;
+    }
 
     case (MENU_TRACK_SEL):                               // TRACK SELECT
       // MENU NAVIGATION
@@ -863,7 +928,7 @@ Session getSession(String sessionName) {
 //
 // INITIALIZE NEW TRACK
 //
-void createSession(int sessionNum) {
+void createSession(int sessionNum, uint16_t session_length) {
   // Creating file structure of new session
   String fileString = "Sessions/";
   fileString += sessionNum;
@@ -878,7 +943,7 @@ void createSession(int sessionNum) {
   }
   fileString += "/meta";
   fileString.toCharArray(filename, 50);
-  writeMetadata(filename, sessionNum);
+  writeMetadata(filename, sessionNum, session_length);
 
   // Update global data
   num_sessions = getSessionOverview(sessions);
@@ -896,13 +961,13 @@ void createSession(int sessionNum) {
   }
 }
 
-void writeMetadata(char* filename, int sessionNum) {
+void writeMetadata(char* filename, int sessionNum, uint16_t session_length) {
   File dataFile = SD.open(filename, FILE_WRITE);
   if (dataFile) {
     dataFile.print("Session_" + String(sessionNum) + ','); // Name
     dataFile.print(String(sessionNum) + ","); // Number
     dataFile.print("85,"); // BPM
-    dataFile.print("16,"); // Length
+    dataFile.print(String(session_length) + ","); // Length
     dataFile.print("1.RAW,2.RAW,3.RAW,4.RAW"); // Four Tracks
     dataFile.close();
   }
