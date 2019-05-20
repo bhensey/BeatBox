@@ -153,7 +153,7 @@ void writeMetadata(char* filename, int sessionNumber) {
     dataFile.print("Session_" + String(sessionNumber) +','); // Name
     dataFile.print("85,"); // BPM
     dataFile.print("16,"); // Length
-    dataFile.print("1.RAW,2.RAW,3.RAW,4.RAW"); // Four Tracks
+    //dataFile.print("1.RAW,2.RAW,3.RAW,4.RAW"); // Four Tracks
     dataFile.close();
   }
   else {
