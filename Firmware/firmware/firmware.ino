@@ -53,7 +53,7 @@ AudioControlSGTL5000     sgtl5000_1;     //xy=252,427
 #define MENU_TRACK_CONFIG           6
 #define MENU_SETTINGS               7
 #define ARE_YOU_SURE                8
-#define MENU_SET_DEFAULT_NUM_BEATS  9
+#define MENU_SET_LOOP_LENGTH  9
 #define ERROR_MENU                  10
 #define MENU_SET_DEF_BPM            11
 #define MENU_SET_DEF_LOOP_LEN       12
@@ -65,6 +65,8 @@ AudioControlSGTL5000     sgtl5000_1;     //xy=252,427
 #define SESSION_OPEN      0
 #define SESSION_DELETE    1
 
+#define TRACK_MUTE      0
+#define TRACK_DELETE    1
 #define BEAT_SOUND        0
 #define DEFAULT_BPM       1
 #define DEFAULT_LOOP_LEN  2
@@ -84,7 +86,7 @@ AudioControlSGTL5000     sgtl5000_1;     //xy=252,427
 #define IS_SEL_RIGHT(n)      (!!(n & RIGHT))
 #define IS_SEL_FAR_RIGHT(n)  (!!(n & FAR_RIGHT))
 
-#define INTERRUPT_THRESHOLD   100
+#define INTERRUPT_THRESHOLD   200
 
 #define MIN_VOL     0
 #define MAX_VOL     100
@@ -185,8 +187,10 @@ int selected_session_config_option = 0;
 int selected_track = 0;
 int selected_track_option = 0;
 
-bool session_playing;
-bool track_playing;
+bool recording;
+bool playing;
+
+int recording_count = 0;
 
 bool beat_LED_enable = false;
 bool click_enable = false;
@@ -219,6 +223,8 @@ bool BPM_B_set = false;
 bool are_you_sure = false;
 
 uint16_t session_length = 16;
+
+uint16_t lead_in_beats = 4;
 
 File root;
 
@@ -400,11 +406,13 @@ void drawSessionSelect(uint8_t selected) {
   } else if (num_sessions == 1) {
     String sess_l = "S" + String(sessions[viewable_sessions[0]].sessionNum);
     boxed_text(sess_l, 20, display.height() / 2 - 4, IS_SEL_LEFT(highlight));
+    centerText(sessions[selected_session].sessionName, 40);
   } else if (num_sessions == 2) {
     String sess_l = "S" + String(sessions[viewable_sessions[0]].sessionNum);
     String sess_c = "S" + String(sessions[viewable_sessions[1]].sessionNum);
     boxed_text(sess_l, 20, display.height() / 2 - 4, IS_SEL_LEFT(highlight));
     boxed_text(sess_c, 60, display.height() / 2 - 4, IS_SEL_CENTER(highlight));
+    centerText(sessions[selected_session].sessionName, 40);
   } else {
     String sess_l = "S" + String(sessions[viewable_sessions[0]].sessionNum);
     String sess_c = "S" + String(sessions[viewable_sessions[1]].sessionNum);
@@ -412,18 +420,17 @@ void drawSessionSelect(uint8_t selected) {
     boxed_text(sess_l, 20, display.height() / 2 - 4, IS_SEL_LEFT(highlight));
     boxed_text(sess_c, 60, display.height() / 2 - 4, IS_SEL_CENTER(highlight));
     boxed_text(sess_r, 100, display.height() / 2 - 4, IS_SEL_RIGHT(highlight));
+    centerText(sessions[selected_session].sessionName, 40);
   }
   if (viewable_sessions[0] > 0) { // left arrow
     display.setCursor(2, display.height() / 2 - 4);
     display.write(LEFT_ARROW);
-
   }
   if (viewable_sessions[2] < num_sessions - 1) { // right arrow
     display.setCursor(122, display.height() / 2 - 4);
     display.write(RIGHT_ARROW);
   }
 
-  centerText(sessions[selected_session].sessionName, 40);
   display.display();
 }
 
@@ -438,29 +445,52 @@ void drawSessionConfig(int session_number, bool highlight) {
   display.display();
 }
 
-void drawTrackSelect(uint8_t existing_tracks, uint8_t highlight) {
-  draw_level("Track Select");
+void drawTrackSelect(uint8_t existing_tracks, uint8_t muted_tracks, uint8_t selected) {
+  uint8_t highlight = 0x8 >> selected;
+  draw_level("Session " + String(sessions[selected_session].sessionNum));
+  display.setCursor(0, 20);
+  display.println("Track Select");
   String track_dne = " + ";
   if (IS_SEL_LEFT(existing_tracks)) {
     boxed_text("T1", 10, display.height() - 20, IS_SEL_LEFT(highlight));
+    if (IS_SEL_LEFT(muted_tracks)) {
+      // display track 1 mute indication
+      display.setCursor(13, display.height() - 8);
+      display.println("M");
+    }
   } else {
     boxed_text(track_dne, 10, display.height() - 20, IS_SEL_LEFT(highlight));
   }
 
   if (IS_SEL_CENTER(existing_tracks)) {
     boxed_text("T2", 40, display.height() - 20, IS_SEL_CENTER(highlight));
+    if (IS_SEL_CENTER(muted_tracks)) {
+      // display track 2 mute indication
+      display.setCursor(43, display.height() - 8);
+      display.println("M");
+    }
   } else {
     boxed_text(track_dne, 40, display.height() - 20, IS_SEL_CENTER(highlight));
   }
 
   if (IS_SEL_RIGHT(existing_tracks)) {
     boxed_text("T3", 70, display.height() - 20, IS_SEL_RIGHT(highlight));
+    if (IS_SEL_RIGHT(muted_tracks)) {
+      // display track 3 mute indication
+      display.setCursor(73, display.height() - 8);
+      display.println("M");
+    }
   } else {
     boxed_text(track_dne, 70, display.height() - 20, IS_SEL_RIGHT(highlight));
   }
 
   if (IS_SEL_FAR_RIGHT(existing_tracks)) {
     boxed_text("T4", 100, display.height() - 20, IS_SEL_FAR_RIGHT(highlight));
+    if (IS_SEL_FAR_RIGHT(muted_tracks)) {
+      // display track 4 mute indication
+      display.setCursor(103, display.height() - 8);
+      display.println("M");
+    }
   } else {
     boxed_text(track_dne, 100, display.height() - 20, IS_SEL_FAR_RIGHT(highlight));
   }
@@ -468,14 +498,28 @@ void drawTrackSelect(uint8_t existing_tracks, uint8_t highlight) {
   display.display();
 }
 
-void drawTrackOptions(uint8_t track_no, uint8_t highlight) {
-  draw_level("Track Options");
+void drawTrackOptions(uint8_t track_no, bool highlight) {
+  if (recording) {
+    if (recording_count > lead_in_beats) {
+      centerText("Recording", 15);
+      centerText("Any button to cancel", 25);
+    } else {
+      centerText("Counting in...", 20);
+    }
+  } else {
+    draw_level("Track Options");
+  }
   String track = "T" + String(track_no);
   boxed_text(track, display.width() / 2 - 10, display.height() - 25, false);
-  boxed_text("Mute", 25, display.height() - 10, IS_SEL_LEFT(highlight));
+  boxed_text("Mute", 25, display.height() - 10, !highlight);
   int posn_x = 67;
   if (track.length() > 2) posn_x = 74;
-  boxed_text("Delete", posn_x, display.height() - 10, IS_SEL_RIGHT(highlight));
+  boxed_text("Delete", posn_x, display.height() - 10, highlight);
+  // if recording, display "recording"
+  // if playing, display "playing"
+  if (playing) {
+    centerText("Playing", 18);
+  }
   display.display();
 }
 
@@ -517,7 +561,7 @@ void areYouSure(bool yes) {
 void updateDisplay() {
   drawStatusBar();
   switch (menu_id) {
-    case (MENU_HOME): {                              // HOME
+    case (MENU_HOME):                               // HOME
       drawHome(selected_home_option);
       // MENU NAVIGATION
       if (right_pressed_flag) {
@@ -535,9 +579,7 @@ void updateDisplay() {
       if (select_pressed_flag) {
         // either create new session, show existing sessions, or go to settings
         if (selected_home_option == NEW_SESSION) {
-          menu_id = MENU_SET_DEFAULT_NUM_BEATS;
-          
-
+          menu_id = MENU_SET_LOOP_LENGTH;
         }
         else if (selected_home_option == EXISTING_SESSION) {
           menu_id = MENU_SESSION_SEL;
@@ -551,22 +593,31 @@ void updateDisplay() {
       // OTHER FUNCTIONALITY
       if (play_rec_pressed_flag) {
         // quick record pressed - new session with new track
+        int newSessionNum = findNewSession();
+        if (newSessionNum > 0) {
+            createSession(newSessionNum, session_length);
+            recording = true;
+            menu_id = MENU_TRACK_CONFIG;
+            selected_track_option = TRACK_MUTE;
+          } else {
+            menu_id = ERROR_MENU;
+          } 
         play_rec_pressed_flag = false;
       }
       break;
-    }
 
-    case (MENU_SET_DEFAULT_NUM_BEATS): {
-      drawSelectOption(String(session_length), "Set Default # Beats");
+    case (MENU_SET_LOOP_LENGTH):
+      drawSelectOption(String(session_length), "Loop Length (Beats)");
        if (select_pressed_flag) {
         int newSessionNum = findNewSession();
           if (newSessionNum > 0) {
             createSession(newSessionNum, session_length);
-            select_pressed_flag = false;
-//            menu_id = MENU_RECORDING;
+            menu_id = MENU_TRACK_CONFIG;
+            selected_track_option = TRACK_MUTE;
           } else {
             menu_id = ERROR_MENU;
-          } 
+          }
+          select_pressed_flag = false;
        }
 
        if(left_pressed_flag) {
@@ -586,71 +637,68 @@ void updateDisplay() {
         back_pressed_flag = false;
        }
       break;
-    }
 
-    case (MENU_SET_DEF_BPM): {
+    case (MENU_SET_DEF_BPM):
       drawSelectOption(String(statusBar.bpm), "Set Default BPM");
-       if (select_pressed_flag) {
-          menu_id = MENU_SETTINGS;
-          select_pressed_flag = false;
-       }
-
-       if (left_pressed_flag) {
-          BPM_encoderPos--;
-          left_pressed_flag = false;
-       }
-
-       if (right_pressed_flag) {
-          BPM_encoderPos++;
-          right_pressed_flag = false;
-       }
+      if (select_pressed_flag) {
+        menu_id = MENU_SETTINGS;
+        select_pressed_flag = false;
+      }
+      if (left_pressed_flag) {
+        BPM_encoderPos--;
+        left_pressed_flag = false;
+      }
+      if (right_pressed_flag) {
+        BPM_encoderPos++;
+        right_pressed_flag = false;
+      }
+      if(back_pressed_flag) {
+        menu_id = MENU_SETTINGS;
+        back_pressed_flag = false;
+      }
       break;
-    }
 
-    case (MENU_SET_DEF_LOOP_LEN): {
+    case (MENU_SET_DEF_LOOP_LEN):
       drawSelectOption(String(session_length), "Default Loop Length");
-       if (select_pressed_flag) {
-          menu_id = MENU_SETTINGS;
-          select_pressed_flag = false;
-       }
-
-       if (left_pressed_flag) {
+      if (select_pressed_flag) {
+        menu_id = MENU_SETTINGS;
+        select_pressed_flag = false;
+      }
+      if (left_pressed_flag) {
         if(session_length > 1) {
           session_length--;
         }
-          left_pressed_flag = false;
-       }
-
-       if (right_pressed_flag) {
-            session_length++;
-          right_pressed_flag = false;
-       }
+        left_pressed_flag = false;
+      }
+      if (right_pressed_flag) {
+        session_length++;
+        right_pressed_flag = false;
+      }
+      if(back_pressed_flag) {
+        menu_id = MENU_SETTINGS;
+        back_pressed_flag = false;
+      }
       break;
-    }
 
-    case (ERROR_MENU): {
+    case (ERROR_MENU):
       drawStorageLimit("Session Limit Reached!\nDelete or export content!");
       if(left_pressed_flag) {
         menu_id = MENU_HOME;
         left_pressed_flag = false;
        }
-
-        if(right_pressed_flag) {
+       if(right_pressed_flag) {
          menu_id = MENU_HOME;
         right_pressed_flag = false;
        }
-
        if(back_pressed_flag) {
         menu_id = MENU_HOME;
         back_pressed_flag = false;
        }
-
        if(select_pressed_flag) {
         menu_id = MENU_HOME;
         select_pressed_flag = false;
        }
       break;
-    }
 
     case (MENU_SETTINGS):                               // SETTINGS
       drawSettings(selected_setting);
@@ -680,6 +728,15 @@ void updateDisplay() {
       // OTHER FUNCTIONALITY
       if (play_rec_pressed_flag) {
         // quick record pressed - new session with new track
+        int newSessionNum = findNewSession();
+        if (newSessionNum > 0) {
+            createSession(newSessionNum, session_length);
+            recording = true;
+            menu_id = MENU_TRACK_CONFIG;
+            selected_track_option = TRACK_MUTE;
+          } else {
+            menu_id = ERROR_MENU;
+          } 
         play_rec_pressed_flag = false;
       }
       break;
@@ -718,14 +775,25 @@ void updateDisplay() {
       }
       if (select_pressed_flag) {
         // enter session options
-        menu_id = MENU_SESSION_CONFIG;
-        selected_session_config_option = SESSION_OPEN;
+        if (num_sessions != 0) {
+          menu_id = MENU_SESSION_CONFIG;
+          selected_session_config_option = SESSION_OPEN;
+        }
         select_pressed_flag = false;
       }
 
       // OTHER FUNCTIONALITY
       if (play_rec_pressed_flag) {
         // quick record pressed - new session with new track
+        int newSessionNum = findNewSession();
+        if (newSessionNum > 0) {
+            createSession(newSessionNum, session_length);
+            recording = true;
+            menu_id = MENU_TRACK_CONFIG;
+            selected_track_option = TRACK_MUTE;
+          } else {
+            menu_id = ERROR_MENU;
+          } 
         play_rec_pressed_flag = false;
       }
       break;
@@ -752,8 +820,11 @@ void updateDisplay() {
       if (select_pressed_flag) {
         // either open or delete
         if (selected_session_config_option == SESSION_OPEN) {
-          
-          //enterSession(sessions[selected_session]);
+          menu_id = MENU_TRACK_SEL;
+          statusBar.bpm = sessions[selected_session].sessionBPM;
+          changeBPM();
+          session_length = sessions[selected_session].sessionLength;
+          selected_track = 0;
         }
         if (selected_session_config_option == SESSION_DELETE) {
           menu_id = ARE_YOU_SURE;
@@ -769,6 +840,7 @@ void updateDisplay() {
         //enterSession(sessions[selected_session-1]);
         //newTrack(sessions[selected_session-1]);
         menu_id = MENU_TRACK_CONFIG;
+        selected_track_option = TRACK_MUTE;
         play_rec_pressed_flag = false;
       }
       break;
@@ -802,13 +874,18 @@ void updateDisplay() {
     }
 
     case (MENU_TRACK_SEL):                               // TRACK SELECT
+      drawTrackSelect(15, 15, selected_track);
       // MENU NAVIGATION
       if (right_pressed_flag) {
-        selected_track += 1;
+        if (selected_track < 3) {
+          selected_track++;
+        }
         right_pressed_flag = false;
       }
       if (left_pressed_flag) {
-        selected_track -= 1;
+        if (selected_track > 0) {
+          selected_track--;
+        }
         left_pressed_flag = false;
       }
       if (back_pressed_flag) {
@@ -818,18 +895,15 @@ void updateDisplay() {
       }
       if (select_pressed_flag) {
         // either new track or existing track
-        if (selected_track == 0) {
-          //newTrack(sessions[selected_session-1]);
-        } else {
-          //enterTrack(sessions[selected_session-1]);
-        }
+        menu_id = MENU_TRACK_CONFIG;
+        selected_track_option = TRACK_MUTE;
         select_pressed_flag = false;
       }
 
       // OTHER FUNCTIONALITY
       if (play_rec_pressed_flag) {
         // play button pressed - play/pause session
-        if (!session_playing) {
+        if (!playing) {
           playSession();
         } else {
           pauseSession();
@@ -839,46 +913,93 @@ void updateDisplay() {
       break;
 
     case (MENU_TRACK_CONFIG):                               // TRACK CONFIG
-      // MENU NAVIGATION
-      if (right_pressed_flag) {
-        selected_track_option += 1;
-        right_pressed_flag = false;
-      }
-      if (left_pressed_flag) {
-        selected_track_option -= 1;
-        left_pressed_flag = false;
-      }
-      if (back_pressed_flag) {
-        menu_id = MENU_TRACK_SEL;
-        back_pressed_flag = false;
-      }
-      if (select_pressed_flag) {
-        // perform action
-        if (selected_track_option == 1) {
-          // mute track
-          //muteTrack(selected_track);
+      drawTrackOptions(selected_track+1, selected_track_option);
+      if (!recording) {             // not recording, so normal behavior
+        // MENU NAVIGATION
+        if (right_pressed_flag) {
+          selected_track_option = TRACK_DELETE;
+          right_pressed_flag = false;
         }
-        if (selected_track_option == 2) {
-          // erase track
-          //eraseTrack(selected_track);
-          // go back to track selection
+        if (left_pressed_flag) {
+          selected_track_option = TRACK_MUTE;
+          left_pressed_flag = false;
+        }
+        if (back_pressed_flag) {
           menu_id = MENU_TRACK_SEL;
-          // (check for edge cases about which track to have selected upon return)
+          back_pressed_flag = false;
         }
-        select_pressed_flag = false;
-      }
-
-      // OTHER FUNCTIONALITY
-      if (play_rec_pressed_flag) {
-        // play button pressed - play/pause track
-        if (!track_playing) {
-          playTrack();
-        } else {
-          pauseTrack();
+        if (select_pressed_flag) {
+          // perform action
+          if (selected_track_option == 1) {
+            // mute track
+            //muteTrack(selected_track);
+          }
+          if (selected_track_option == 2) {
+            // erase track
+            //eraseTrack(selected_track);
+            // go back to track selection
+            menu_id = MENU_TRACK_SEL;
+            // (check for edge cases about which track to have selected upon return)
+          }
+          select_pressed_flag = false;
         }
-        play_rec_pressed_flag = false;
-      }
-      break;
+  
+        // OTHER FUNCTIONALITY
+        if (play_rec_pressed_flag) {
+          recording = true;
+          // rec/play button pressed - record or play/pause track
+          /*
+          if (track_exists(sessions[selected_session], selected_track)) {
+            // there's a track there, so play/pause it
+            if (!playing) {
+              //playTrack();
+            } else {
+              //pauseTrack();
+            }
+          } else {
+            // there's no track there, so start recording
+            //startRecording();
+            // turn on recording LED
+            recording = true;
+          }*/
+  
+          play_rec_pressed_flag = false;
+        }
+        break;
+    } else {                // recording, so don't accept input
+      // cancel if any button is pressed
+      // stop recording, turn off LED, delete newly created track
+      if (right_pressed_flag) {
+          recording = false;
+          recording_count = 0;
+          digitalWrite(recordingLED, LOW);
+          right_pressed_flag = false;
+        }
+        if (left_pressed_flag) {
+          recording = false;
+          recording_count = 0;
+          digitalWrite(recordingLED, LOW);
+          left_pressed_flag = false;
+        }
+        if (back_pressed_flag) {
+          recording = false;
+          recording_count = 0;
+          digitalWrite(recordingLED, LOW);
+          back_pressed_flag = false;
+        }
+        if (select_pressed_flag) {
+          recording = false;
+          recording_count = 0;
+          digitalWrite(recordingLED, LOW);
+          select_pressed_flag = false;
+        }
+        if (play_rec_pressed_flag) {
+          recording = false;
+          recording_count = 0;
+          digitalWrite(recordingLED, LOW);
+          play_rec_pressed_flag = false;
+        }
+    }
   }
 }
 
@@ -1021,8 +1142,9 @@ void createSession(int sessionNum, uint16_t session_length) {
   // Update global data
   num_sessions = getSessionOverview(sessions);
   selected_session = findIndex(sessionNum);
+  selected_track = 0;
   if (num_sessions >= 3) {
-    if (selected_session > viewable_sessions[2]) {
+    if (selected_session > viewable_sessions[2] || viewable_sessions[2] >= num_sessions) {
       viewable_sessions[0] = selected_session - 2;
       viewable_sessions[1] = selected_session - 1;
       viewable_sessions[2] = selected_session;
@@ -1086,8 +1208,11 @@ void deleteSession(int sessionNum) {
   if (selected_session > 0) {
     selected_session--;
   }
+  if (num_sessions == 0) {
+    selected_session = 0;
+  }
   if (num_sessions >= 3) {
-    if (selected_session > viewable_sessions[2]) {
+    if (selected_session > viewable_sessions[2] || viewable_sessions[2] >= num_sessions) {
       viewable_sessions[0] = selected_session - 2;
       viewable_sessions[1] = selected_session - 1;
       viewable_sessions[2] = selected_session;
@@ -1300,8 +1425,10 @@ void handleStatus() {
   statusBar.vol = VOL_encoderPos;
   changeVol();
 
-  statusBar.bpm = BPM_encoderPos;
-  changeBPM();
+  if (!recording) {
+    statusBar.bpm = BPM_encoderPos;
+    changeBPM();
+  }
 }
 
 void sendBeat() {
@@ -1323,7 +1450,28 @@ void sendBeat() {
   } else {//if(haptic_enable) {
     XBee.write(2);
   }
-
+  // increment counter if recording
+  if(recording) {
+    //Serial.println("Recording Count : " + String(recording_count));
+    if (recording_count > (lead_in_beats + session_length)) {
+      // stop recording
+      Serial.println("Recording Done");
+      recording = false;
+      recording_count = 0;
+      digitalWrite(recordingLED, LOW);
+    } else if (recording_count > lead_in_beats) {
+      digitalWrite(recordingLED, HIGH);
+    } else {
+      if (beat_LED_enable) {
+        digitalWrite(recordingLED, HIGH);
+      } else {
+        digitalWrite(recordingLED, LOW);
+      }
+    }
+    if (beat_LED_enable) {
+      recording_count++;
+    }
+  }
 }
 void changeBPM() {
   beatTimer.update((0.5 * 60 * pow(10, 6)) / statusBar.bpm);
