@@ -15,6 +15,9 @@
 #define SDCARD_MOSI_PIN  11 // not actually used
 #define SDCARD_SCK_PIN   13 // not actually used
 
+// Create library that 
+
+
 //
 // DATA AND STRUCTS
 //
@@ -32,26 +35,12 @@ struct Session {
   String trackTwo;
   String trackThree;
   String trackFour;
-  
-  
 };
 
 
 //
 // HELPER FUNCTIONS
 //
-void getTrackFilepath(int trackNumber) {
-  // Use global variable selected_session
-  // session/track.wav
-  String fileString = "Sessions/";
-  fileString += session;
-  fileString += "/";
-  fileString += trackNumber;
-  fileString += ".wav";
-  char filename[50];
-  fileString.toCharArray(filename, 50);
-  Serial.println(filename);
-}
 
 bool fileExists(char dir[]) {
   if (SD.exists(dir)) {
@@ -144,20 +133,68 @@ void createSession(int sessionNumber) {
   }
 fileString += "/meta";
 fileString.toCharArray(filename, 50);
- writeMetadata(filename, sessionNumber);
+ initMetadata(filename, sessionNumber);
 }
 
-void writeMetadata(char* filename, int sessionNumber) {
+void initMetadata(char* filename, int sessionNumber) {
   File dataFile = SD.open(filename, FILE_WRITE);
   if (dataFile) {
     dataFile.print("Session_" + String(sessionNumber) +','); // Name
     dataFile.print("85,"); // BPM
     dataFile.print("16,"); // Length
-    //dataFile.print("1.RAW,2.RAW,3.RAW,4.RAW"); // Four Tracks
+    dataFile.print("none,none,none,none"); // Four Tracks
     dataFile.close();
   }
   else {
-    Serial.println("Error opening filename in writeMetadata");
+    Serial.println("Error opening filename in initMetadata");
+  }
+}
+
+void updateMetadata(char* filename, Session theSession) {
+  Serial.println("updating Metadata");
+  Serial.println("Update metadata in " + theSession.sessionName + " with bpm of " + theSession.sessionBpm);
+  Serial.println("Filename: " + String(filename));
+  SD.remove(filename);
+  File dataFile = SD.open(filename, FILE_WRITE);
+  if (dataFile) {
+    dataFile.print(theSession.sessionName + ","); // Name
+    dataFile.print(theSession.sessionBpm + ","); // BPM
+    dataFile.print(theSession.sessionLength + ","); // Length
+    dataFile.print(theSession.trackOne + "," + theSession.trackTwo + "," + theSession.trackThree + "," + theSession.trackFour); // Four Tracks
+    dataFile.close();
+    Serial.println("PRINTTEST: " + theSession.trackTwo);
+  }
+  
+  else {
+    Serial.println("Error opening filename in updateMetadata");
+  }
+}
+
+void createTrack(int trackNumber) {
+  Session theSession = getSession(session);
+  Serial.println("Create track in " + theSession.sessionName);
+  String fileString = "Sessions/";
+  fileString += session;
+  fileString += "/";
+  fileString += trackNumber;
+  fileString += ".raw";
+  char filename[50];
+  fileString.toCharArray(filename, 50);
+  if (!fileExists(filename)) {
+    if (trackNumber == 1) {theSession.trackOne = fileString;}
+    else if (trackNumber == 2) {theSession.trackTwo = fileString;}
+    else if (trackNumber == 3) {theSession.trackThree = fileString;}
+    else if (trackNumber == 4) {theSession.trackFour = fileString;}
+    fileString = "Sessions/";
+    fileString += session;
+    fileString += "/meta";
+    char filename[50];
+    fileString.toCharArray(filename, 50);
+    
+    updateMetadata(filename, theSession);
+    }
+  else {
+    Serial.println("Error: Track already exists");
   }
 }
 
@@ -242,12 +279,13 @@ void setup() {
      //
      // TEST CODE
      //
-   deleteSession(3);
-   deleteSession(5);
-   deleteSession(23);
+    deleteSession(3);
+    deleteSession(5);
+    deleteSession(23);
     createSession(3);
     createSession(5);
     createSession(23);
+    createTrack(2);
 
     root = SD.open("Sessions");
     Session sessionArray[99];
@@ -257,6 +295,7 @@ void setup() {
       Serial.println(sessionArray[i].sessionBpm);
       Serial.println(sessionArray[i].sessionLength);
       Serial.println(sessionArray[i].trackOne);
+      Serial.println(sessionArray[i].trackTwo);
     }
     root.rewindDirectory();
     root.close();
