@@ -174,6 +174,8 @@ Encoder vol_Enc(volPin1, volPin2);
 
 SoftwareSerial XBee(33, 34);
 
+File frec;
+
 uint8_t bpm = 85;
 uint8_t vol = 50;
 struct globalConfig statusBar = {bpm, vol, false};
@@ -195,6 +197,7 @@ int selected_track_option = 0;
 
 bool recording;
 bool playing;
+bool pendingRecording = false;
 
 int recording_count = 0;
 
@@ -333,6 +336,11 @@ void setup() {
 void loop() {
   handleStatus();
   updateDisplay();
+
+  if(recording && (recording_count > lead_in_beats) && !pendingRecording) {
+//    Serial.println("Continue Recording");
+    continueRecording(frec);
+  }
 }
 
 // DISPLAY FUNCTIONS
@@ -604,6 +612,7 @@ void updateDisplay() {
         if (newSessionNum > 0) {
             createSession(newSessionNum, session_length);
             recording = true;
+            pendingRecording = true;
             menu_id = MENU_TRACK_CONFIG;
             selected_track_option = TRACK_MUTE;
           } else {
@@ -739,6 +748,7 @@ void updateDisplay() {
         if (newSessionNum > 0) {
             createSession(newSessionNum, session_length);
             recording = true;
+            pendingRecording = true;
             menu_id = MENU_TRACK_CONFIG;
             selected_track_option = TRACK_MUTE;
           } else {
@@ -796,6 +806,7 @@ void updateDisplay() {
         if (newSessionNum > 0) {
             createSession(newSessionNum, session_length);
             recording = true;
+            pendingRecording = true;
             menu_id = MENU_TRACK_CONFIG;
             selected_track_option = TRACK_MUTE;
           } else {
@@ -954,6 +965,7 @@ void updateDisplay() {
         // OTHER FUNCTIONALITY
         if (play_rec_pressed_flag) {
           recording = true;
+          pendingRecording = true;
           // rec/play button pressed - record or play/pause track
           /*
           if (track_exists(sessions[selected_session], selected_track)) {
@@ -968,6 +980,7 @@ void updateDisplay() {
             //startRecording();
             // turn on recording LED
             recording = true;
+            pendingRecording = true;
           }*/
   
           play_rec_pressed_flag = false;
@@ -1311,64 +1324,66 @@ void eraseTrack() {
 
 void startRecording(File frec) {
   Serial.println("startRecording");
-  if (SD.exists(frec)) {
-    // The SD library writes new data to the end of the
-    // file, so to start a new recording, the old file
-    // must be deleted before new data is written.
-    SD.remove(frec);
-  }
+//  if (SD.exists(frec.name())) {
+//    // The SD library writes new data to the end of the
+//    // file, so to start a new recording, the old file
+//    // must be deleted before new data is written.
+//    SD.remove(frec.name());
+//  }
   
   if (frec) {
-//    queue1.begin();
+    queue1.begin();
     mode = 1;
   }
 }
 
 void stopRecording(File frec) {
   Serial.println("stopRecording");
-//  queue1.end();
-//  if (mode == 1) {
-//    while (queue1.available() > 0) {
-//      frec.write((byte*)queue1.readBuffer(), 256);
-//      queue1.freeBuffer();
-//    }
+  queue1.end();
+  if (mode == 1) {
+    while (queue1.available() > 0) {
+      frec.write((byte*)queue1.readBuffer(), 256);
+      queue1.freeBuffer();
+    }
     frec.close();
+  }
   mode = 0;
 }
 
 
 void continueRecording(File frec) {
-//  if (queue1.available() >= 2) {
-//    byte buffer[512];
-//    // Fetch 2 blocks from the audio library and copy
-//    // into a 512 byte buffer.  The Arduino SD library
-//    // is most efficient when full 512 byte sector size
-//    // writes are used.
-//    memcpy(buffer, queue1.readBuffer(), 256);
-//    queue1.freeBuffer();
-//    memcpy(buffer+256, queue1.readBuffer(), 256);
-//    queue1.freeBuffer();
-//    // write all 512 bytes to the SD card
-//    elapsedMicros usec = 0;
-//    frec.write(buffer, 512);
-//    // Uncomment these lines to see how long SD writes
-//    // are taking.  A pair of audio blocks arrives every
-//    // 5802 microseconds, so hopefully most of the writes
-//    // take well under 5802 us.  Some will take more, as
-//    // the SD library also must write to the FAT tables
-//    // and the SD card controller manages media erase and
-//    // wear leveling.  The queue1 object can buffer
-//    // approximately 301700 us of audio, to allow time
-//    // for occasional high SD card latency, as long as
-//    // the average write time is under 5802 us.
-//    //Serial.print("SD write, us=");
-//    //Serial.println(usec);
-//  }
+  if (queue1.available() >= 2) {
+    byte buffer[512];
+    // Fetch 2 blocks from the audio library and copy
+    // into a 512 byte buffer.  The Arduino SD library
+    // is most efficient when full 512 byte sector size
+    // writes are used.
+    memcpy(buffer, queue1.readBuffer(), 256);
+    queue1.freeBuffer();
+    memcpy(buffer+256, queue1.readBuffer(), 256);
+    queue1.freeBuffer();
+    // write all 512 bytes to the SD card
+    elapsedMicros usec = 0;
+    frec.write(buffer, 512);
+    // Uncomment these lines to see how long SD writes
+    // are taking.  A pair of audio blocks arrives every
+    // 5802 microseconds, so hopefully most of the writes
+    // take well under 5802 us.  Some will take more, as
+    // the SD library also must write to the FAT tables
+    // and the SD card controller manages media erase and
+    // wear leveling.  The queue1 object can buffer
+    // approximately 301700 us of audio, to allow time
+    // for occasional high SD card latency, as long as
+    // the average write time is under 5802 us.
+    //Serial.print("SD write, us=");
+    //Serial.println(usec);
+  }
 }
 
 void deleteRecording(File frec) {
   Serial.println("deleteRecording");
   stopRecording(frec);
+  SD.remove(frec.name());
 }
 
 void enterSetting(int selected_setting) {
@@ -1516,11 +1531,25 @@ void sendBeat() {
     //Serial.println("Recording Count : " + String(recording_count));
     if (recording_count > (lead_in_beats + session_length)) {
       // stop recording
+      Serial.printf("Mode is: %d\n", mode);
+      stopRecording(frec);
       Serial.println("Recording Done");
+//      playSdRaw1.play("Dummy.RAW");
+//      Serial.println("Playing recording");
       recording = false;
       recording_count = 0;
       digitalWrite(recordingLED, LOW);
     } else if (recording_count > lead_in_beats) {
+      if(pendingRecording) {
+        frec = SD.open("Dummy.RAW", FILE_WRITE);
+        startRecording(frec);
+        pendingRecording = false;
+      }
+//      } else {
+//        Serial.println("Continue Recording");
+//        continueRecording(frec);
+//      }
+      
       digitalWrite(recordingLED, HIGH);
     } else {
       if (beat_LED_enable) {
