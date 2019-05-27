@@ -337,10 +337,10 @@ void loop() {
   handleStatus();
   updateDisplay();
 
-  if(recording && (recording_count > lead_in_beats) && !pendingRecording) {
-    //Serial.println("Continue Recording");
-    continueRecording();
-  }
+//  if(recording && (recording_count > lead_in_beats) && !pendingRecording) {
+//    //Serial.println("Continue Recording");
+//    continueRecording();
+////  }
 }
 
 // DISPLAY FUNCTIONS
@@ -1382,6 +1382,20 @@ void continueRecording() {
   }
 }
 
+void onlyRecording() {
+  cli();
+  int startTimer = millis();
+  int endTimer = startTimer;
+  while ((endTimer-startTimer) < 4000) {
+    continueRecording();
+    endTimer = millis();
+  }
+  stopRecording();
+  playSdRaw1.play("DUMMY.RAW");
+  Serial.println("Playing recording");
+  sei();
+}
+
 void deleteRecording() {
   Serial.println("deleteRecording");
   stopRecording();
@@ -1531,38 +1545,40 @@ void sendBeat() {
   // increment counter if recording
   if(recording) {
     //Serial.println("Recording Count : " + String(recording_count));
-    if (recording_count > (lead_in_beats + session_length)) {
-      // stop recording
-      Serial.printf("Mode is: %d\n", mode);
-      stopRecording();
-      Serial.println("Recording Done");
-      playSdRaw1.play("Dummy.RAW");
-      Serial.println("Playing recording");
-      recording = false;
-      recording_count = 0;
-      digitalWrite(recordingLED, LOW);
-    } else if (recording_count > lead_in_beats) {
-      if(pendingRecording) {
+//    if (recording_count > (lead_in_beats + session_length)) {
+//      // stop recording
+//      Serial.printf("Mode is: %d\n", mode);
+//      stopRecording();
+//      Serial.println("Recording Done");
+//      playSdRaw1.play("Dummy.RAW");
+//      Serial.println("Playing recording");
+//      recording = false;
+//      recording_count = 0;
+//      digitalWrite(recordingLED, LOW);
+//    } else if (recording_count > lead_in_beats) {
+//      if(pendingRecording) {
         frec = SD.open("DUMMY.RAW", FILE_WRITE);
         startRecording();
-        pendingRecording = false;
-      }
+//        pendingRecording = false;
+        onlyRecording();
+        recording = false;
+//      }
 //      } else {
 //        Serial.println("Continue Recording");
 //        continueRecording();
 //      }
       
-      digitalWrite(recordingLED, HIGH);
-    } else {
-      if (beat_LED_enable) {
-        digitalWrite(recordingLED, HIGH);
-      } else {
-        digitalWrite(recordingLED, LOW);
-      }
-    }
-    if (beat_LED_enable) {
-      recording_count++;
-    }
+//      digitalWrite(recordingLED, HIGH);
+//    } else {
+//      if (beat_LED_enable) {
+//        digitalWrite(recordingLED, HIGH);
+//      } else {
+//        digitalWrite(recordingLED, LOW);
+//      }
+//    }
+//    if (beat_LED_enable) {
+//      recording_count++;
+//    }
   }
 }
 void changeBPM() {

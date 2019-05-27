@@ -17,6 +17,13 @@
 //
 
 
+struct Track
+{
+  bool trackExists = 0;
+  bool trackMute = 0;
+  char trackFilepath[50] = "no filepath";
+};
+
 class Session 
 {
   public:
@@ -24,10 +31,14 @@ class Session
     char* sessionName;
     int sessionBpm;
     int sessionLength;
+    Track trackList[4];
 
     // Helper functions
     void updateMetadata();
     void deleteSession();
+    void createTrack(int trackNum);
+    void muteTrack(int trackNum);
+    
     
     // Debugging functions
     void showFilepath() {Serial.println(_sessionFilepath);};
@@ -38,6 +49,7 @@ class Session
     char _metaFilepath[50];
 };
 
+
 class FileClass
 {
   public:
@@ -47,9 +59,7 @@ class FileClass
   // Helper functions
 
   private:
-  
-  String _readLine(File readFile); // Takes a file and outputs the next line
-  char* _sessionPath(char* sessionNumber); 
+
 };
 
 
@@ -58,11 +68,45 @@ class FileClass
 // Define FileClass Methods
 //
 
+Session FileClass::getSession(char* sessionNum) {
+  char sessionFilepath [50];
+  char tmpFilepath [50];
+  strcpy(sessionFilepath, "Session/");
+  strcat(sessionFilepath, sessionNum);
+  strcat(sessionFilepath, "/meta");
+  if (SD.exists(sessionFilepath)) {
+    Serial.printf("Getting session %s\n", sessionNum);
+  } else {
+    Serial.printf("Error: Cannot get session %s\n", sessionNum);
+  }
+  File metaFile = SD.open(sessionFilepath);
+  char sessionName[50]; 
+  metaFile.readStringUntil('\n').trim().toCharArray(sessionName, 50);
+  int sessionBpm = metaFile.readStringUntil('\n').trim().toInt(); 
+  int sessionLength = metaFile.readStringUntil('\n').trim().toInt(); 
+  Session session = Session(sessionName, sessionBpm, sessionLength);
+  // Update track properties
+  for (int i = 0; i < 4; i++) {
+    if (SD.exists(session.trackList[i].trackFilepath)) {
+      Serial.printf("Track %d exists\n", i);
+      session.trackList[i].trackExists = 1;
+      session.trackList[i].trackMute = metaFile.readStringUntil('\n').trim().toInt(); 
+      } else{
+        Serial.printf("Track %d does not exist\n", i);
+        int throwaway = metaFile.readStringUntil('\n').trim().toInt(); 
+      }
+    } 
+  metaFile.close();
+  return session;
+}
+
+
 //
 // Define Session Methods
 //
 
 Session::Session(char* Name, int Bpm, int Length) {
+  char tmpFilepath [50];
   sessionName = Name;
   sessionBpm = Bpm;
   sessionLength = Length;
@@ -70,14 +114,27 @@ Session::Session(char* Name, int Bpm, int Length) {
   strcat(_sessionFilepath, Name);
   strcat(_sessionFilepath, "/");
   strcpy(_metaFilepath, _sessionFilepath);
-  strcat(_metaFilepath, "meta");
-  SD.mkdir(_sessionFilepath);
+  strcat(_metaFilepath, "meta"); 
+  // Generate track filepaths
+  char buff[4];
+  for (int i = 0; i < 4; i++) {
+      strcpy(tmpFilepath, _sessionFilepath);
+      strcat(tmpFilepath, "track_");
+      strcat(tmpFilepath, itoa(i, buff, 4));
+      strcat(tmpFilepath, ".raw");
+      strcpy(trackList[i].trackFilepath, tmpFilepath);
+      trackList[i].trackMute = 1;
+    } 
   if (SD.exists(_sessionFilepath)) {
-    Serial.printf("%s is created \n", _sessionFilepath);
+    Serial.printf("Getting directory %s\n", _sessionFilepath);
   } else {
-    Serial.printf("Error creating %s\n", _sessionFilepath);
+    Serial.printf("Making directory %s\n", _sessionFilepath);
+    SD.mkdir(_sessionFilepath);
+    updateMetadata();
   }
-  updateMetadata();
+  if (!SD.exists(_sessionFilepath)) {
+    Serial.printf("Error creating %s\n", _sessionFilepath);
+  } 
 }
 
 void Session::deleteSession() {
@@ -105,24 +162,26 @@ void Session::deleteSession() {
 }
 
 void Session::updateMetadata() {
-  
   if (SD.exists(_metaFilepath)) {
     SD.remove(_metaFilepath);
-    Serial.printf("Initializing metadata for %s\n", sessionName);
-  } else {
     Serial.printf("Updating metadata for %s\n", sessionName);
+  } else {
+    Serial.printf("Initializing metadata for %s\n", sessionName);
   }
   File dataFile = SD.open(_metaFilepath, FILE_WRITE);
   if (dataFile) {
-    dataFile.println(sessionName); // Name
-    dataFile.println(sessionBpm); // BPM
-    dataFile.println(sessionLength); // Length
+    dataFile.println(String(sessionName)); // Name
+    dataFile.println(String(sessionBpm)); // BPM
+    dataFile.println(String(sessionLength)); // Length
+    dataFile.println(String(trackList[0].trackMute)); // Track mute options
+    dataFile.println(String(trackList[1].trackMute));
+    dataFile.println(String(trackList[2].trackMute));
+    dataFile.println(String(trackList[3].trackMute));
     dataFile.close();
   } else {
     Serial.println("Error in updateMetadata");
-  }
+  } 
 }
-
 
 //
 // DEBUGGING CODE
@@ -144,8 +203,7 @@ void printDirectory(File dir, int numTabs) {
       printDirectory(entry, numTabs + 1);
     } else {
       // files have sizes, directories do not
-      Serial.print("\t\t");
-      Serial.println(entry.size(), DEC);
+      Serial.println("\t\t");
     }
     entry.close();
   }
@@ -168,8 +226,16 @@ void setup() {
       delay(500);
     }
   }
+
   FileClass fileSystem = FileClass();
   Session session = Session("4", 85, 16);
+  session.sessionLength = 17;
+  File testTrack = SD.open("Session/4/track_3.raw", FILE_WRITE);
+  testTrack.close();
+  session.updateMetadata();
+  Session sessionSD = fileSystem.getSession("4");
+  SD.remove("Session/4/track_3.raw");
+  Serial.println(sessionSD.sessionLength);
   session.deleteSession();
   Serial.println("Printing Directory:");
   printDirectory(SD.open("Session/"), 1);
