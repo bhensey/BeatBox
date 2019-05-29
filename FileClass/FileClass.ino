@@ -16,6 +16,11 @@
 #define SDCARD_SCK_PIN   13 // not actually used
 //
 
+// TO DO
+// 1. Impliment getSessionOverview 
+// 2. Impliment createTrack() and muteTrack()
+// 3. 
+//
 
 struct Track
 {
@@ -67,6 +72,27 @@ class FileClass
 //
 // Define FileClass Methods
 //
+
+int Session FileClass::getSessionOverview(Session *sessionArray) {
+  // Scan SD card and return a pointer to an array of every existing session in order
+  Serial.println("Running getSessionOverview...");
+  int numSessions = 0;
+  File dir = SD.open("Sessions");
+  while (true) {
+    File entry =  dir.openNextFile();
+    if (! entry) {
+      // no more files  
+      break;
+      }
+    Session session = getSession(entry.name());
+    Serial.println("Session Name: " + session.sessionName);
+    sessionArray[numSessions] = newSession;
+    numSessions += 1;
+    entry.close();
+  }
+  
+  return numSessions;
+}
 
 Session FileClass::getSession(char* sessionNum) {
   char sessionFilepath [50];
