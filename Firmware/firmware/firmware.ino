@@ -158,7 +158,7 @@ const int BPMPin2 = 32;         // the number of the left BPM encoder pin
 const int volPin1 = 29;         // the number of the right volume encoder pin
 const int volPin2 = 30;         // the number of the left volume encoder pin
 
-//const int beatLED = 13;         // the number of the beat indicator LED // DO NOT ENABLE, INTERFERES WITH AUDIO INTERFACE
+const int beatLED = 3;         // the number of the beat indicator LED // DO NOT ENABLE, INTERFERES WITH AUDIO INTERFACE
 const int clickLED = 1;         // the number of the click enable LED
 const int hapticLED = 2;        // the number of the haptic enable LED
 const int recordingLED = 0;     // the number of the recording indicator LED
@@ -243,7 +243,7 @@ void setup() {
   Serial.begin(9600);
   while (!Serial);
 
-  AudioMemory(120); // Memory for all audio funcitons especially recording buffer
+  AudioMemory(60); // Memory for all audio funcitons especially recording buffer
   sgtl5000_1.enable();
   sgtl5000_1.inputSelect(myInput);
   sgtl5000_1.volume(1);
@@ -279,7 +279,7 @@ void setup() {
   pinMode(hapticButton, INPUT_PULLDOWN);
   pinMode(playrecButton, INPUT_PULLDOWN);
 
-  //pinMode(beatLED, OUTPUT); // DO NOT ENABLE, INTERFERES WITH AUDIO INTERFACE
+  pinMode(beatLED, OUTPUT);
   pinMode(clickLED, OUTPUT);
   pinMode(hapticLED, OUTPUT);
   pinMode(recordingLED, OUTPUT);
@@ -313,7 +313,7 @@ void setup() {
   XBee.begin(115200);
 
   deleteAll(); // deletes all sessions on the card (for testing purposes)
-  createSession(2,16);
+//  createSession(2,16);
   
   // get session information from SD card
   num_sessions = getSessionOverview(sessions); // populates list of sessions, returns the number of sessions
@@ -337,10 +337,10 @@ void loop() {
   handleStatus();
   updateDisplay();
 
-  if(recording && (recording_count > lead_in_beats) && !pendingRecording) {
-    //Serial.println("Continue Recording");
-    continueRecording();
-  }
+//  if(recording && (recording_count > lead_in_beats) && !pendingRecording) {
+//    //Serial.println("Continue Recording");
+//    continueRecording();
+//  }
 }
 
 // DISPLAY FUNCTIONS
@@ -1328,6 +1328,7 @@ void startRecording() {
     // The SD library writes new data to the end of the
     // file, so to start a new recording, the old file
     // must be deleted before new data is written.
+    Serial.println("Removing " + String(frec.name()));
     SD.remove(frec.name());
   }
 
@@ -1344,9 +1345,11 @@ void stopRecording() {
   queue1.end();
   if (mode == 1) {
     while (queue1.available() > 0) {
+      Serial.println("Waiting");
       frec.write((byte*)queue1.readBuffer(), 256);
       queue1.freeBuffer();
     }
+    Serial.println("Done waiting");
     frec.close();
   }
   mode = 0;
@@ -1354,6 +1357,7 @@ void stopRecording() {
 
 
 void continueRecording() {
+  Serial.println("Continue Recording");
   if (queue1.available() >= 2) {
     byte buffer[512];
     // Fetch 2 blocks from the audio library and copy
@@ -1377,8 +1381,8 @@ void continueRecording() {
     // approximately 301700 us of audio, to allow time
     // for occasional high SD card latency, as long as
     // the average write time is under 5802 us.
-    //Serial.print("SD write, us=");
-    //Serial.println(usec);
+    Serial.print("SD write, us=");
+    Serial.println(usec);
   }
 }
 
@@ -1512,10 +1516,10 @@ void handleStatus() {
 void sendBeat() {
   // blink LED
   if (beat_LED_enable) {
-    //digitalWrite(beatLED, LOW); // DO NOT ENABLE, INTERFERES WITH AUDIO INTERFACE
+    digitalWrite(beatLED, LOW);
     beat_LED_enable = false;
   } else {
-    //digitalWrite(beatLED, HIGH); // DO NOT ENABLE, INTERFERES WITH AUDIO INTERFACE
+    digitalWrite(beatLED, HIGH);
     beat_LED_enable = true;
   }
   // conditionally send click
@@ -1530,29 +1534,28 @@ void sendBeat() {
   }
   // increment counter if recording
   if(recording) {
-    //Serial.println("Recording Count : " + String(recording_count));
+    Serial.println("Recording Count : " + String(recording_count));
     if (recording_count > (lead_in_beats + session_length)) {
       // stop recording
-      Serial.printf("Mode is: %d\n", mode);
       stopRecording();
       Serial.println("Recording Done");
-      playSdRaw1.play("Dummy.RAW");
+      playSdRaw1.play("DUMMY.RAW");
       Serial.println("Playing recording");
       recording = false;
       recording_count = 0;
       digitalWrite(recordingLED, LOW);
     } else if (recording_count > lead_in_beats) {
+      digitalWrite(recordingLED, HIGH);
+      // start recording
       if(pendingRecording) {
         frec = SD.open("DUMMY.RAW", FILE_WRITE);
         startRecording();
         pendingRecording = false;
+//        onlyRecording();
+      } else {
+        // continue recording
+        continueRecording();
       }
-//      } else {
-//        Serial.println("Continue Recording");
-//        continueRecording();
-//      }
-      
-      digitalWrite(recordingLED, HIGH);
     } else {
       if (beat_LED_enable) {
         digitalWrite(recordingLED, HIGH);
@@ -1565,6 +1568,23 @@ void sendBeat() {
     }
   }
 }
+
+void onlyRecording() {
+//  cli();
+  Serial.println("Only recording");
+  int startTimer = millis();
+  int endTimer = startTimer;
+  while ((endTimer - startTimer) < 4000) {
+    continueRecording();
+    endTimer = millis();
+  }
+  Serial.println("Done continuing");
+  stopRecording();
+  playSdRaw1.play("DUMMY.RAW");
+  Serial.println("Playing recording");
+//  sei();
+}
+
 void changeBPM() {
   beatTimer.update((0.5 * 60 * pow(10, 6)) / statusBar.bpm);
 }
