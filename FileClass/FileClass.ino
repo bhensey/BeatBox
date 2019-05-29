@@ -16,12 +16,6 @@
 #define SDCARD_SCK_PIN   13 // not actually used
 //
 
-// TO DO
-// 1. Impliment getSessionOverview 
-// 2. Impliment createTrack() and muteTrack()
-// 3. 
-//
-
 struct Track
 {
   bool trackExists = 0;
@@ -32,8 +26,8 @@ struct Track
 class Session 
 {
   public:
-    Session(char* Name, int Bpm, int Length);
-    char* sessionName;
+    Session(int Num, int Bpm, int Length);
+    int sessionNum;
     int sessionBpm;
     int sessionLength;
     Track trackList[4];
@@ -60,7 +54,7 @@ class FileClass
 {
   public:
   int getSessionOverview(Session **sessionArray); // Takes a preallocated empty session array, returns size and populates it
-  Session getSession(char* sessionNum); // Takes a session number, returns a session object
+  Session getSession(int sessionNum); // Takes a session number, returns a session object
   
   // Helper functions
 
@@ -87,7 +81,7 @@ int FileClass::getSessionOverview(Session **sessionArray) {
       }
     Serial.print("Session Name: ");
     Serial.println(entry.name());
-    Session session = getSession(entry.name());
+    Session session = getSession(String(entry.name()).toInt());
     sessionArray[numSessions] = &session;
     numSessions += 1;
     entry.close();
@@ -96,23 +90,24 @@ int FileClass::getSessionOverview(Session **sessionArray) {
   return numSessions;
 }
 
-Session FileClass::getSession(char* sessionNum) {
+Session FileClass::getSession(int Num) {
   char sessionFilepath [50];
   char tmpFilepath [50];
+  char buff [50];
+  String(Num).toCharArray(buff, 50);
   strcpy(sessionFilepath, "Sessions/");
-  strcat(sessionFilepath, sessionNum);
+  strcat(sessionFilepath, buff);
   strcat(sessionFilepath, "/meta");
   if (SD.exists(sessionFilepath)) {
-    Serial.printf("Getting session %s\n", sessionNum);
+    Serial.printf("Getting session %d\n", Num);
   } else {
-    Serial.printf("Error: Cannot get session %s\n", sessionNum);
+    Serial.printf("Error: Cannot get session %d\n", Num);
   }
   File metaFile = SD.open(sessionFilepath);
-  char sessionName[50]; 
-  metaFile.readStringUntil('\n').trim().toCharArray(sessionName, 50);
+  int sessionNum = metaFile.readStringUntil('\n').trim().toInt();
   int sessionBpm = metaFile.readStringUntil('\n').trim().toInt(); 
   int sessionLength = metaFile.readStringUntil('\n').trim().toInt(); 
-  Session session = Session(sessionName, sessionBpm, sessionLength);
+  Session session = Session(sessionNum, sessionBpm, sessionLength);
   // Update track properties
   for (int i = 0; i < 4; i++) {
     if (SD.exists(session.trackList[i].trackFilepath)) {
@@ -133,22 +128,24 @@ Session FileClass::getSession(char* sessionNum) {
 // Define Session Methods
 //
 
-Session::Session(char* Name, int Bpm, int Length) {
+Session::Session(int Num, int Bpm, int Length) {
   char tmpFilepath [50];
-  sessionName = Name;
+  char buff1 [50];
+  String(Num).toCharArray(buff1, 50);
+  sessionNum = Num;
   sessionBpm = Bpm;
   sessionLength = Length;
   strcpy(_sessionFilepath, "Sessions/");
-  strcat(_sessionFilepath, Name);
+  strcat(_sessionFilepath, buff1);
   strcat(_sessionFilepath, "/");
   strcpy(_metaFilepath, _sessionFilepath);
   strcat(_metaFilepath, "meta"); 
   // Generate track filepaths
-  char buff[4];
+  char buff2[4];
   for (int i = 0; i < 4; i++) {
       strcpy(tmpFilepath, _sessionFilepath);
       strcat(tmpFilepath, "track_");
-      strcat(tmpFilepath, itoa(i, buff, 4));
+      strcat(tmpFilepath, itoa(i, buff2, 4));
       strcat(tmpFilepath, ".raw");
       strcpy(trackList[i].trackFilepath, tmpFilepath);
       trackList[i].trackMute = 1;
@@ -192,13 +189,13 @@ void Session::deleteSession() {
 void Session::updateMetadata() {
   if (SD.exists(_metaFilepath)) {
     SD.remove(_metaFilepath);
-    Serial.printf("Updating metadata for %s\n", sessionName);
+    Serial.printf("Updating metadata for %d\n", sessionNum);
   } else {
-    Serial.printf("Initializing metadata for %s\n", sessionName);
+    Serial.printf("Initializing metadata for %d\n", sessionNum);
   }
   File dataFile = SD.open(_metaFilepath, FILE_WRITE);
   if (dataFile) {
-    dataFile.println(String(sessionName)); // Name
+    dataFile.println(String(sessionNum)); // Name
     dataFile.println(String(sessionBpm)); // BPM
     dataFile.println(String(sessionLength)); // Length
     dataFile.println(String(trackList[0].trackMute)); // Track mute options
@@ -284,16 +281,15 @@ void setup() {
   }
 
   FileClass fileSystem = FileClass();
-  Session session3 = Session("3", 85, 16);
-  Session session4 = Session("4", 85, 16);
-  Session session5 = Session("5", 85, 16);
-  Session session24 = Session("24", 85, 16);
+  Session session3 = Session(3, 85, 16);
+  Session session4 = Session(4, 85, 16);
+  Session session5 = Session(5, 85, 16);
+  Session session24 = Session(24, 85, 16);
   session3.sessionLength = 17;
-  //File testTrack = SD.open("Sessions/4/track_3.raw", FILE_WRITE);
   File testTrack = session4.createTrack(3);
   testTrack.close();
   session4.deleteTrack(3);
-  Session sessionSD = fileSystem.getSession("4");
+  Session sessionSD = fileSystem.getSession(4);
   Serial.println(sessionSD.sessionLength);
   session4.deleteSession();
   Serial.println("Printing Directory:");
