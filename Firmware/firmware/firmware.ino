@@ -168,6 +168,7 @@ static unsigned long last_interrupt_time = 0;
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 IntervalTimer beatTimer;
+IntervalTimer recordTimer;
 
 Encoder BPM_Enc(BPMPin1, BPMPin2);
 Encoder vol_Enc(volPin1, volPin2);
@@ -210,6 +211,8 @@ bool right_pressed_flag = false;
 bool left_pressed_flag = false;
 bool select_pressed_flag = false;
 bool back_pressed_flag = false;
+
+bool continueRecording_enable = false;
 
 char track1[] = "SDTEST1.WAV";
 char track2[] = "SDTEST2.WAV";
@@ -286,6 +289,7 @@ void setup() {
 
   // initialize beat timer
   beatTimer.begin(sendBeat, 0.5 * (60 * pow(10, 6)) / statusBar.bpm);
+  recordTimer.begin(recordISR, 5000);
 
   // initialize ISRs
   attachInterrupt(digitalPinToInterrupt(leftButton), leftButton_ISR, FALLING);
@@ -1538,6 +1542,7 @@ void sendBeat() {
     if (recording_count > (lead_in_beats + session_length)) {
       // stop recording
       stopRecording();
+      continueRecording_enable = false;
       Serial.println("Recording Done");
       playSdRaw1.play("DUMMY.RAW");
       Serial.println("Playing recording");
@@ -1554,7 +1559,8 @@ void sendBeat() {
 //        onlyRecording();
       } else {
         // continue recording
-        continueRecording();
+        continueRecording_enable = true;
+//        continueRecording();
       }
     } else {
       if (beat_LED_enable) {
@@ -1583,6 +1589,12 @@ void onlyRecording() {
   playSdRaw1.play("DUMMY.RAW");
   Serial.println("Playing recording");
 //  sei();
+}
+
+void recordISR() {
+  if(continueRecording_enable) {
+     continueRecording();
+  } 
 }
 
 void changeBPM() {
