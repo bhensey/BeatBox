@@ -32,6 +32,7 @@ struct Track
 class Session 
 {
   public:
+    Session();
     Session(char* Name, int Bpm, int Length);
     char* sessionName;
     int sessionBpm;
@@ -73,7 +74,7 @@ class FileClass
 // Define FileClass Methods
 //
 
-int Session FileClass::getSessionOverview(Session *sessionArray) {
+int FileClass::getSessionOverview(Session *sessionArray) {
   // Scan SD card and return a pointer to an array of every existing session in order
   Serial.println("Running getSessionOverview...");
   int numSessions = 0;
@@ -85,8 +86,9 @@ int Session FileClass::getSessionOverview(Session *sessionArray) {
       break;
       }
     Session session = getSession(entry.name());
-    Serial.println("Session Name: " + session.sessionName);
-    sessionArray[numSessions] = newSession;
+    Serial.print("Session Name: ");
+    Serial.println(session.sessionName);
+    sessionArray[numSessions] =session;
     numSessions += 1;
     entry.close();
   }
@@ -130,6 +132,12 @@ Session FileClass::getSession(char* sessionNum) {
 //
 // Define Session Methods
 //
+
+Session::Session() {
+  sessionName = "empty";
+  sessionBpm = 0;
+  sessionLength = 0;
+}
 
 Session::Session(char* Name, int Bpm, int Length) {
   char tmpFilepath [50];
@@ -265,6 +273,13 @@ void setup() {
   session.deleteSession();
   Serial.println("Printing Directory:");
   printDirectory(SD.open("Session/"), 1);
+  Session sessionArray[99];
+  int numSessions = fileSystem.getSessionOverview(sessionArray);
+  for (int i=0; i<numSessions; i++) {
+    Serial.println(sessionArray[i].sessionName);
+    Serial.println(sessionArray[i].sessionBpm);
+    Serial.println(sessionArray[i].sessionLength);
+    }
 }
 
 void loop() {
