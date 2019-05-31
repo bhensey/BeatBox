@@ -64,33 +64,36 @@ int mode = 0;
 #define MENU_SET_DEF_BPM            11
 #define MENU_SET_DEF_LOOP_LEN       12
 
-#define NEW_SESSION       0
-#define EXISTING_SESSION  1
-#define SETTINGS          2
+#define us                          1
+#define ms                          1000*us
 
-#define SESSION_OPEN      0
-#define SESSION_DELETE    1
+#define NEW_SESSION                 0
+#define EXISTING_SESSION            1
+#define SETTINGS                    2
 
-#define TRACK_MUTE      0
-#define TRACK_DELETE    1
-#define BEAT_SOUND        0
-#define DEFAULT_BPM       1
-#define DEFAULT_LOOP_LEN  2
+#define SESSION_OPEN                0
+#define SESSION_DELETE              1
 
-#define SCREEN_WIDTH 128 // OLED display width, in pixels
-#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+#define TRACK_MUTE                  0
+#define TRACK_DELETE                1
+#define BEAT_SOUND                  0
+#define DEFAULT_BPM                 1
+#define DEFAULT_LOOP_LEN            2
 
-#define RIGHT_ARROW   16
-#define LEFT_ARROW    17
+#define SCREEN_WIDTH                128 // OLED display width, in pixels
+#define SCREEN_HEIGHT               64 // OLED display height, in pixels
 
-#define LEFT                  8
-#define CENTER                4
-#define RIGHT                 2
-#define FAR_RIGHT             1
-#define IS_SEL_LEFT(n)       (!!(n & LEFT))
-#define IS_SEL_CENTER(n)     (!!(n & CENTER))
-#define IS_SEL_RIGHT(n)      (!!(n & RIGHT))
-#define IS_SEL_FAR_RIGHT(n)  (!!(n & FAR_RIGHT))
+#define RIGHT_ARROW                 16
+#define LEFT_ARROW                  17
+
+#define LEFT                        8
+#define CENTER                      4
+#define RIGHT                       2
+#define FAR_RIGHT                   1
+#define IS_SEL_LEFT(n)              (!!(n & LEFT))
+#define IS_SEL_CENTER(n)            (!!(n & CENTER))
+#define IS_SEL_RIGHT(n)             (!!(n & RIGHT))
+#define IS_SEL_FAR_RIGHT(n)         (!!(n & FAR_RIGHT))
 
 #define INTERRUPT_THRESHOLD   200
 
@@ -289,7 +292,7 @@ void setup() {
 
   // initialize beat timer
   beatTimer.begin(sendBeat, 0.5 * (60 * pow(10, 6)) / statusBar.bpm);
-  recordTimer.begin(recordISR, 5000);
+  recordTimer.begin(recordISR, 5*ms);
 
   // initialize ISRs
   attachInterrupt(digitalPinToInterrupt(leftButton), leftButton_ISR, FALLING);
@@ -341,10 +344,6 @@ void loop() {
   handleStatus();
   updateDisplay();
 
-//  if(recording && (recording_count > lead_in_beats) && !pendingRecording) {
-//    //Serial.println("Continue Recording");
-//    continueRecording();
-//  }
 }
 
 // DISPLAY FUNCTIONS
@@ -581,6 +580,7 @@ void updateDisplay() {
   drawStatusBar();
   switch (menu_id) {
     case (MENU_HOME):                               // HOME
+      statusBar.play_rec = false;
       drawHome(selected_home_option);
       // MENU NAVIGATION
       if (right_pressed_flag) {
@@ -627,6 +627,7 @@ void updateDisplay() {
       break;
 
     case (MENU_SET_LOOP_LENGTH):
+      statusBar.play_rec = false;
       drawSelectOption(String(session_length), "Loop Length (Beats)");
        if (select_pressed_flag) {
         int newSessionNum = findNewSession();
@@ -659,6 +660,7 @@ void updateDisplay() {
       break;
 
     case (MENU_SET_DEF_BPM):
+      statusBar.play_rec = false;
       drawSelectOption(String(statusBar.bpm), "Set Default BPM");
       if (select_pressed_flag) {
         menu_id = MENU_SETTINGS;
@@ -679,6 +681,7 @@ void updateDisplay() {
       break;
 
     case (MENU_SET_DEF_LOOP_LEN):
+      statusBar.play_rec = false;
       drawSelectOption(String(session_length), "Default Loop Length");
       if (select_pressed_flag) {
         menu_id = MENU_SETTINGS;
@@ -701,6 +704,7 @@ void updateDisplay() {
       break;
 
     case (ERROR_MENU):
+      statusBar.play_rec = false;
       drawStorageLimit("Session Limit Reached!\nDelete or export content!");
       if(left_pressed_flag) {
         menu_id = MENU_HOME;
@@ -721,6 +725,7 @@ void updateDisplay() {
       break;
 
     case (MENU_SETTINGS):                               // SETTINGS
+      statusBar.play_rec = false;
       drawSettings(selected_setting);
       // MENU NAVIGATION
       if (right_pressed_flag) {
@@ -763,6 +768,7 @@ void updateDisplay() {
       break;
 
     case (MENU_SESSION_SEL):                               // SESSION SELECT
+      statusBar.play_rec = false;
       drawSessionSelect(selected_session);
       // MENU NAVIGATION
       if (right_pressed_flag) {
@@ -821,6 +827,7 @@ void updateDisplay() {
       break;
 
     case (MENU_SESSION_CONFIG):                               // SESSION CONFIG
+      statusBar.play_rec = false;
       drawSessionConfig(sessions[selected_session].sessionNum, selected_session_config_option);
       // MENU NAVIGATION
       if (right_pressed_flag) {
@@ -868,6 +875,7 @@ void updateDisplay() {
       break;
 
     case (ARE_YOU_SURE): {
+      statusBar.play_rec = false;
       areYouSure(are_you_sure);
       if (select_pressed_flag && !are_you_sure) {
         menu_id = MENU_SESSION_SEL;
@@ -896,6 +904,7 @@ void updateDisplay() {
     }
 
     case (MENU_TRACK_SEL):                               // TRACK SELECT
+      statusBar.play_rec = true;
       drawTrackSelect(15, 15, selected_track);
       // MENU NAVIGATION
       if (right_pressed_flag) {
@@ -926,7 +935,8 @@ void updateDisplay() {
       if (play_rec_pressed_flag) {
         // play button pressed - play/pause session
         if (!playing) {
-          playSession();
+          playTrack();
+//          playSession();
         } else {
           pauseSession();
         }
@@ -935,8 +945,10 @@ void updateDisplay() {
       break;
 
     case (MENU_TRACK_CONFIG):                               // TRACK CONFIG
+      statusBar.play_rec = false;
       drawTrackOptions(selected_track+1, selected_track_option);
       if (!recording) {             // not recording, so normal behavior
+        Serial.println("Not recording");
         // MENU NAVIGATION
         if (right_pressed_flag) {
           selected_track_option = TRACK_DELETE;
@@ -965,27 +977,25 @@ void updateDisplay() {
           }
           select_pressed_flag = false;
         }
-  
         // OTHER FUNCTIONALITY
         if (play_rec_pressed_flag) {
           recording = true;
           pendingRecording = true;
           // rec/play button pressed - record or play/pause track
-          /*
-          if (track_exists(sessions[selected_session], selected_track)) {
-            // there's a track there, so play/pause it
-            if (!playing) {
-              //playTrack();
-            } else {
-              //pauseTrack();
-            }
-          } else {
-            // there's no track there, so start recording
-            //startRecording();
-            // turn on recording LED
-            recording = true;
-            pendingRecording = true;
-          }*/
+//          if (track_exists(sessions[selected_session], selected_track)) {
+//            // there's a track there, so play/pause it
+//            if (!playing) {
+//              //playTrack();
+//            } else {
+//              //pauseTrack();
+//            }
+//          } else {
+//            // there's no track there, so start recording
+//            //startRecording();
+//            // turn on recording LED
+//            recording = true;
+//            pendingRecording = true;
+//          }
   
           play_rec_pressed_flag = false;
         }
@@ -993,36 +1003,13 @@ void updateDisplay() {
     } else {                // recording, so don't accept input
       // cancel if any button is pressed
       // stop recording, turn off LED, delete newly created track
-      if (right_pressed_flag) {
+      if (right_pressed_flag || left_pressed_flag || back_pressed_flag || select_pressed_flag || play_rec_pressed_flag) {
+          deleteRecording();
           recording = false;
           recording_count = 0;
           digitalWrite(recordingLED, LOW);
           right_pressed_flag = false;
-        }
-        if (left_pressed_flag) {
-          recording = false;
-          recording_count = 0;
-          digitalWrite(recordingLED, LOW);
-          left_pressed_flag = false;
-        }
-        if (back_pressed_flag) {
-          recording = false;
-          recording_count = 0;
-          digitalWrite(recordingLED, LOW);
-          back_pressed_flag = false;
-        }
-        if (select_pressed_flag) {
-          recording = false;
-          recording_count = 0;
-          digitalWrite(recordingLED, LOW);
-          select_pressed_flag = false;
-        }
-        if (play_rec_pressed_flag) {
-          recording = false;
-          recording_count = 0;
-          digitalWrite(recordingLED, LOW);
-          play_rec_pressed_flag = false;
-        }
+        }       
     }
   }
 }
@@ -1311,7 +1298,8 @@ void pauseSession() {
 }
 
 void playTrack() {
-
+  Serial.println("HI");
+  playSdRaw1.play("DUMMY.RAW");
 }
 
 void pauseTrack() {
@@ -1385,14 +1373,15 @@ void continueRecording() {
     // approximately 301700 us of audio, to allow time
     // for occasional high SD card latency, as long as
     // the average write time is under 5802 us.
-    Serial.print("SD write, us=");
-    Serial.println(usec);
+    // Serial.print("SD write, us=");
+    // Serial.println(usec);
   }
 }
 
 void deleteRecording() {
   Serial.println("deleteRecording");
   stopRecording();
+  continueRecording_enable = false;
   SD.remove(frec.name());
 }
 
