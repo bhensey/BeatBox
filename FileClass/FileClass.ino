@@ -54,7 +54,7 @@ class FileClass
 {
   public:
   int getSessionOverview(Session **sessionArray); // Takes a preallocated empty session array, returns size and populates it
-  Session getSession(int sessionNum); // Takes a session number, returns a session object
+  Session* getSession(int sessionNum); // Takes a session number, returns a session object
   
   // Helper functions
 
@@ -81,16 +81,16 @@ int FileClass::getSessionOverview(Session **sessionArray) {
       }
     Serial.print("Session Name: ");
     Serial.println(entry.name());
-    Session session = getSession(String(entry.name()).toInt());
-    sessionArray[numSessions] = &session;
+    sessionArray[numSessions] = getSession(String(entry.name()).toInt());
     numSessions += 1;
     entry.close();
+    Serial.println(sessionArray[numSessions-1]->sessionNum);
   }
   
   return numSessions;
 }
 
-Session FileClass::getSession(int Num) {
+Session* FileClass::getSession(int Num) {
   char sessionFilepath [50];
   char tmpFilepath [50];
   char buff [50];
@@ -107,13 +107,13 @@ Session FileClass::getSession(int Num) {
   int sessionNum = metaFile.readStringUntil('\n').trim().toInt();
   int sessionBpm = metaFile.readStringUntil('\n').trim().toInt(); 
   int sessionLength = metaFile.readStringUntil('\n').trim().toInt(); 
-  Session session = Session(sessionNum, sessionBpm, sessionLength);
+  Session* session = new Session(sessionNum, sessionBpm, sessionLength);
   // Update track properties
   for (int i = 0; i < 4; i++) {
-    if (SD.exists(session.trackList[i].trackFilepath)) {
+    if (SD.exists(session->trackList[i].trackFilepath)) {
       Serial.printf("Session %s, Track %d exists\n", sessionNum, i);
-      session.trackList[i].trackExists = 1;
-      session.trackList[i].trackMute = metaFile.readStringUntil('\n').trim().toInt(); 
+      session->trackList[i].trackExists = 1;
+      session->trackList[i].trackMute = metaFile.readStringUntil('\n').trim().toInt(); 
       } else{
         //Serial.printf("Track %d does not exist\n", i);
         int throwaway = metaFile.readStringUntil('\n').trim().toInt(); 
@@ -281,6 +281,10 @@ void setup() {
   }
 
   FileClass fileSystem = FileClass();
+  Session* sessionTest = new Session(12, 13, 14);
+  Serial.println(sessionTest->sessionNum);
+
+  
   Session session3 = Session(3, 85, 16);
   Session session4 = Session(4, 85, 16);
   Session session5 = Session(5, 85, 16);
@@ -288,13 +292,15 @@ void setup() {
   File testTrack = session4.createTrack(3);
   testTrack.close();
   session4.deleteTrack(3);
-  Session sessionSD = fileSystem.getSession(4);
-  Serial.println(sessionSD.sessionLength);
+  Session* sessionSD = fileSystem.getSession(4);
+  Serial.println("SessionSD Length:");
+  Serial.println(sessionSD->sessionLength);
   session4.deleteSession();
   Serial.println("Printing Directory:");
   printDirectory(SD.open("Sessions/"), 1);
   Session *sessionArray[99];
   int numSessions = fileSystem.getSessionOverview(sessionArray);
+  Serial.println("There are " + String(numSessions) + " Sessions");
 }
 
 void loop() {
