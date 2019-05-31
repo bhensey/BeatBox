@@ -285,7 +285,6 @@ void setup() {
   Session session4 = Session(4, 85, 16);
   Session session5 = Session(5, 85, 16);
   Session session24 = Session(24, 85, 16);
-  session3.sessionLength = 17;
   File testTrack = session4.createTrack(3);
   testTrack.close();
   session4.deleteTrack(3);
