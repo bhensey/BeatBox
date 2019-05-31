@@ -115,32 +115,57 @@ struct date {
   int year;
 };
 
-struct Track {
-  bool mute;
-  String trackName;
+struct Track
+{
+  bool trackExists = 0;
+  bool trackMute = 0;
+  char trackFilepath[50] = "no filepath";
 };
 
-struct Session {
-  String sessionName;
-  int sessionNum;
-  int sessionBPM;
-  int sessionLength;  // in beats
-  String trackOne;
-  String trackTwo;
-  String trackThree;
-  String trackFour;
+class Session 
+{
+  public:
+    Session(int num, int BPM, int len);
+    Session() {};
+    int sessionNum;
+    int sessionBPM;
+    int sessionLength;
+    Track trackList[4];
+
+    // Helper functions
+    void updateMetadata();
+    void deleteSession();
+    File createTrack(int trackNum);
+    void deleteTrack(int trackNum);
+    void muteTrack(int trackNum);
+    void unmuteTrack(int trackNum);
+    
+    // Debugging functions
+    void showFilepath() {Serial.println(_sessionFilepath);};
+    void showMetaFilepath() {Serial.println(_metaFilepath);};
+    
+  private:
+    char _sessionFilepath[50];
+    char _metaFilepath[50];
+};
+
+
+class FileClass
+{
+  public:
+  int getSessionOverview(Session **sessionArray); // Takes a preallocated empty session array, returns size and populates it
+  Session getSession(int sessionNum); // Takes a session number, returns a session object
+  
+  // Helper functions
+
+  private:
+
 };
 
 struct globalConfig {
   int bpm;
   int vol;
   bool play_rec;  // indicates what pressing the play/rec button will do (0=play, 1=rec)
-};
-
-enum SessionState {
-  Valid,
-  Deleted,
-  End
 };
 
 
@@ -185,7 +210,9 @@ int menu_id = 0; // current state of the menu
 
 int num_sessions; // number of existing sessions
 
-Session sessions[MAX_SESSIONS]; // empty list of sessions
+Session* sessions[MAX_SESSIONS]; // empty list of session pointers
+
+Session current_session = Session();
 
 // menu selection global variables
 int selected_home_option = 0;
@@ -240,6 +267,7 @@ uint16_t lead_in_beats = 4;
 
 File root;
 
+FileClass fileSystem = FileClass();
 
 // SETUP AND LOOP FUNCTIONS
 void setup() {
@@ -320,17 +348,13 @@ void setup() {
 //  createSession(2,16);
   
   // get session information from SD card
-  num_sessions = getSessionOverview(sessions); // populates list of sessions, returns the number of sessions
+  num_sessions = fileSystem.getSessionOverview(sessions); // populates list of sessions, returns the number of sessions
 
   root = SD.open("Sessions");
   for (int i = 0; i < num_sessions; i++) {
-    Serial.println(sessions[i].sessionName);
-    Serial.println(sessions[i].sessionBPM);
-    Serial.println(sessions[i].sessionLength);
-    Serial.println(sessions[i].trackOne);
-    Serial.println(sessions[i].trackTwo);
-    Serial.println(sessions[i].trackThree);
-    Serial.println(sessions[i].trackFour);
+    Serial.println(sessions[i]->sessionNum);
+    Serial.println(sessions[i]->sessionBPM);
+    Serial.println(sessions[i]->sessionLength);
   }
   root.rewindDirectory();
   root.close();
@@ -423,23 +447,23 @@ void drawSessionSelect(uint8_t selected) {
   if (num_sessions == 0) {
     // no sessions
   } else if (num_sessions == 1) {
-    String sess_l = "S" + String(sessions[viewable_sessions[0]].sessionNum);
+    String sess_l = "S" + String(sessions[viewable_sessions[0]]->sessionNum);
     boxed_text(sess_l, 20, display.height() / 2 - 4, IS_SEL_LEFT(highlight));
-    centerText(sessions[selected_session].sessionName, 40);
+    centerText(String(sessions[selected_session]->sessionNum), 40);
   } else if (num_sessions == 2) {
-    String sess_l = "S" + String(sessions[viewable_sessions[0]].sessionNum);
-    String sess_c = "S" + String(sessions[viewable_sessions[1]].sessionNum);
+    String sess_l = "S" + String(sessions[viewable_sessions[0]]->sessionNum);
+    String sess_c = "S" + String(sessions[viewable_sessions[1]]->sessionNum);
     boxed_text(sess_l, 20, display.height() / 2 - 4, IS_SEL_LEFT(highlight));
     boxed_text(sess_c, 60, display.height() / 2 - 4, IS_SEL_CENTER(highlight));
-    centerText(sessions[selected_session].sessionName, 40);
+    centerText(String(sessions[selected_session]->sessionNum), 40);
   } else {
-    String sess_l = "S" + String(sessions[viewable_sessions[0]].sessionNum);
-    String sess_c = "S" + String(sessions[viewable_sessions[1]].sessionNum);
-    String sess_r = "S" + String(sessions[viewable_sessions[2]].sessionNum);
+    String sess_l = "S" + String(sessions[viewable_sessions[0]]->sessionNum);
+    String sess_c = "S" + String(sessions[viewable_sessions[1]]->sessionNum);
+    String sess_r = "S" + String(sessions[viewable_sessions[2]]->sessionNum);
     boxed_text(sess_l, 20, display.height() / 2 - 4, IS_SEL_LEFT(highlight));
     boxed_text(sess_c, 60, display.height() / 2 - 4, IS_SEL_CENTER(highlight));
     boxed_text(sess_r, 100, display.height() / 2 - 4, IS_SEL_RIGHT(highlight));
-    centerText(sessions[selected_session].sessionName, 40);
+    centerText(String(sessions[selected_session]->sessionNum), 40);
   }
   if (viewable_sessions[0] > 0) { // left arrow
     display.setCursor(2, display.height() / 2 - 4);
@@ -466,7 +490,7 @@ void drawSessionConfig(int session_number, bool highlight) {
 
 void drawTrackSelect(uint8_t existing_tracks, uint8_t muted_tracks, uint8_t selected) {
   uint8_t highlight = 0x8 >> selected;
-  draw_level("Session " + String(sessions[selected_session].sessionNum));
+  draw_level("Session " + String(current_session.sessionNum));
   display.setCursor(0, 20);
   display.println("Track Select");
   String track_dne = " + ";
@@ -614,7 +638,7 @@ void updateDisplay() {
         // quick record pressed - new session with new track
         int newSessionNum = findNewSession();
         if (newSessionNum > 0) {
-            createSession(newSessionNum, session_length);
+            current_session = Session(newSessionNum, statusBar.bpm, session_length);
             recording = true;
             pendingRecording = true;
             menu_id = MENU_TRACK_CONFIG;
@@ -631,7 +655,7 @@ void updateDisplay() {
        if (select_pressed_flag) {
         int newSessionNum = findNewSession();
           if (newSessionNum > 0) {
-            createSession(newSessionNum, session_length);
+            current_session = Session(newSessionNum, statusBar.bpm, session_length);
             menu_id = MENU_TRACK_CONFIG;
             selected_track_option = TRACK_MUTE;
           } else {
@@ -750,7 +774,7 @@ void updateDisplay() {
         // quick record pressed - new session with new track
         int newSessionNum = findNewSession();
         if (newSessionNum > 0) {
-            createSession(newSessionNum, session_length);
+            current_session = Session(newSessionNum, statusBar.bpm, session_length);
             recording = true;
             pendingRecording = true;
             menu_id = MENU_TRACK_CONFIG;
@@ -808,7 +832,7 @@ void updateDisplay() {
         // quick record pressed - new session with new track
         int newSessionNum = findNewSession();
         if (newSessionNum > 0) {
-            createSession(newSessionNum, session_length);
+            current_session = Session(newSessionNum, statusBar.bpm, session_length);
             recording = true;
             pendingRecording = true;
             menu_id = MENU_TRACK_CONFIG;
@@ -821,7 +845,7 @@ void updateDisplay() {
       break;
 
     case (MENU_SESSION_CONFIG):                               // SESSION CONFIG
-      drawSessionConfig(sessions[selected_session].sessionNum, selected_session_config_option);
+      drawSessionConfig(sessions[selected_session]->sessionNum, selected_session_config_option);
       // MENU NAVIGATION
       if (right_pressed_flag) {
         if (selected_session_config_option < 1) {
@@ -843,15 +867,14 @@ void updateDisplay() {
         // either open or delete
         if (selected_session_config_option == SESSION_OPEN) {
           menu_id = MENU_TRACK_SEL;
-          statusBar.bpm = sessions[selected_session].sessionBPM;
+          statusBar.bpm = sessions[selected_session]->sessionBPM;
           changeBPM();
-          session_length = sessions[selected_session].sessionLength;
+          session_length = sessions[selected_session]->sessionLength;
+          current_session = *sessions[selected_session];
           selected_track = 0;
         }
         if (selected_session_config_option == SESSION_DELETE) {
           menu_id = ARE_YOU_SURE;
-//          deleteSession(sessions[selected_session].sessionNum);
-//          menu_id = MENU_SESSION_SEL;
         }
         select_pressed_flag = false;
       }
@@ -859,8 +882,7 @@ void updateDisplay() {
       // OTHER FUNCTIONALITY
       if (play_rec_pressed_flag) {
         // quick record pressed - new track in current session
-        //enterSession(sessions[selected_session-1]);
-        //newTrack(sessions[selected_session-1]);
+        current_session = *sessions[selected_session];
         menu_id = MENU_TRACK_CONFIG;
         selected_track_option = TRACK_MUTE;
         play_rec_pressed_flag = false;
@@ -875,7 +897,8 @@ void updateDisplay() {
       }
       if (select_pressed_flag && are_you_sure) {
         menu_id = MENU_SESSION_SEL;
-        deleteSession(sessions[selected_session].sessionNum);
+        deleteSession(current_session);
+        updateSessions(-1);
         select_pressed_flag = false;
         are_you_sure = false;
       }
@@ -913,6 +936,7 @@ void updateDisplay() {
       if (back_pressed_flag) {
         menu_id = MENU_SESSION_CONFIG;
         selected_session_config_option = SESSION_OPEN;
+        updateSessions(current_session.sessionNum);
         back_pressed_flag = false;
       }
       if (select_pressed_flag) {
@@ -1031,6 +1055,205 @@ void updateDisplay() {
 // File System Functions
 
 //
+// Define FileClass Methods
+//
+
+int FileClass::getSessionOverview(Session **sessionArray) {
+  // Scan SD card and return a pointer to an array of every existing session in order
+  Serial.println("Running getSessionOverview...");
+  int numSessions = 0;
+  File dir = SD.open("Sessions");
+  while (true) {
+    File entry =  dir.openNextFile();
+    if (! entry) {
+      // no more files  
+      break;
+      }
+    Serial.print("Session Name: ");
+    Serial.println(entry.name());
+    Session session = getSession(String(entry.name()).toInt());
+    sessionArray[numSessions] = &session;
+    numSessions += 1;
+    entry.close();
+  }
+  
+  return numSessions;
+}
+
+Session FileClass::getSession(int Num) {
+  char sessionFilepath [50];
+  char tmpFilepath [50];
+  char buff [50];
+  String(Num).toCharArray(buff, 50);
+  strcpy(sessionFilepath, "Sessions/");
+  strcat(sessionFilepath, buff);
+  strcat(sessionFilepath, "/meta");
+  if (SD.exists(sessionFilepath)) {
+    Serial.printf("Getting session %d\n", Num);
+  } else {
+    Serial.printf("Error: Cannot get session %d\n", Num);
+  }
+  File metaFile = SD.open(sessionFilepath);
+  int sessionNum = metaFile.readStringUntil('\n').trim().toInt();
+  int sessionBPM = metaFile.readStringUntil('\n').trim().toInt(); 
+  int sessionLength = metaFile.readStringUntil('\n').trim().toInt(); 
+  Session session = Session(sessionNum, sessionBPM, sessionLength);
+  // Update track properties
+  for (int i = 0; i < 4; i++) {
+    if (SD.exists(session.trackList[i].trackFilepath)) {
+      Serial.printf("Session %s, Track %d exists\n", sessionNum, i);
+      session.trackList[i].trackExists = 1;
+      session.trackList[i].trackMute = metaFile.readStringUntil('\n').trim().toInt(); 
+      } else{
+        //Serial.printf("Track %d does not exist\n", i);
+        int throwaway = metaFile.readStringUntil('\n').trim().toInt(); 
+      }
+    } 
+  metaFile.close();
+  return session;
+}
+
+
+//
+// Define Session Methods
+//
+
+Session::Session(int Num, int Bpm, int Length) {
+  char tmpFilepath [50];
+  char buff1 [50];
+  String(Num).toCharArray(buff1, 50);
+  sessionNum = Num;
+  sessionBPM = Bpm;
+  sessionLength = Length;
+  strcpy(_sessionFilepath, "Sessions/");
+  strcat(_sessionFilepath, buff1);
+  strcat(_sessionFilepath, "/");
+  strcpy(_metaFilepath, _sessionFilepath);
+  strcat(_metaFilepath, "meta"); 
+  // Generate track filepaths
+  char buff2[4];
+  for (int i = 0; i < 4; i++) {
+      strcpy(tmpFilepath, _sessionFilepath);
+      strcat(tmpFilepath, "track_");
+      strcat(tmpFilepath, itoa(i, buff2, 4));
+      strcat(tmpFilepath, ".raw");
+      strcpy(trackList[i].trackFilepath, tmpFilepath);
+      trackList[i].trackMute = 1;
+    } 
+  if (SD.exists(_sessionFilepath)) {
+    Serial.printf("Getting directory %s\n", _sessionFilepath);
+  } else {
+    Serial.printf("Making directory %s\n", _sessionFilepath);
+    SD.mkdir(_sessionFilepath);
+    updateMetadata();
+  }
+  if (!SD.exists(_sessionFilepath)) {
+    Serial.printf("Error creating %s\n", _sessionFilepath);
+  }
+}
+
+void Session::deleteSession() {
+  File dir = SD.open(_sessionFilepath);
+  char tmpFilepath[50];
+  // Delete all files in folder
+  while (true) {
+    File entry = dir.openNextFile();
+    if (! entry) {
+      // no more files
+      break;
+    }
+    strcpy(tmpFilepath, _sessionFilepath);
+    strcat(tmpFilepath, entry.name());
+    SD.remove(tmpFilepath);
+    Serial.printf("Removed file %s\n", tmpFilepath);
+  }
+  SD.rmdir(_sessionFilepath);
+  if (SD.exists(_sessionFilepath)){
+    Serial.printf("ERROR: The session %s was not removed\n", _sessionFilepath);
+  }
+  else {
+    Serial.printf("Directory %s is removed\n", _sessionFilepath);
+  }
+}
+
+void Session::updateMetadata() {
+  if (SD.exists(_metaFilepath)) {
+    SD.remove(_metaFilepath);
+    Serial.printf("Updating metadata for %d\n", sessionNum);
+  } else {
+    Serial.printf("Initializing metadata for %d\n", sessionNum);
+  }
+  File dataFile = SD.open(_metaFilepath, FILE_WRITE);
+  if (dataFile) {
+    dataFile.println(String(sessionNum)); // Name
+    dataFile.println(String(sessionBPM)); // BPM
+    dataFile.println(String(sessionLength)); // Length
+    dataFile.println(String(trackList[0].trackMute)); // Track mute options
+    dataFile.println(String(trackList[1].trackMute));
+    dataFile.println(String(trackList[2].trackMute));
+    dataFile.println(String(trackList[3].trackMute));
+    dataFile.close();
+  } else {
+    Serial.println("Error in updateMetadata");
+  } 
+}
+
+File Session::createTrack(int trackNum) {
+  Serial.printf("Creating track %d\n", trackNum);
+  if (trackNum > 3) {
+    Serial.printf("Track must be between 0 and 3");
+  }
+  trackList[trackNum].trackExists = 1;
+  return SD.open(trackList[trackNum].trackFilepath, FILE_WRITE);
+}
+
+void Session::deleteTrack(int trackNum) {
+  Serial.printf("Deleting track %d\n", trackNum);
+  trackList[trackNum].trackExists = 0;
+  SD.remove(trackList[trackNum].trackFilepath);
+  updateMetadata();
+}
+
+void Session::muteTrack(int trackNum) {
+  Serial.printf("Muting track %d\n", trackNum);
+  trackList[trackNum].trackMute = 1;
+  updateMetadata();
+}
+
+void Session::unmuteTrack(int trackNum) {
+  Serial.printf("Unmuting track %d\n", trackNum);
+  trackList[trackNum].trackMute = 0;
+  updateMetadata();
+}
+
+//
+// DEBUGGING CODE
+//
+void printDirectory(File dir, int numTabs) {
+  while (true) {
+
+    File entry =  dir.openNextFile();
+    if (! entry) {
+      // no more files  
+      break;
+    }
+    for (uint8_t i = 0; i < numTabs; i++) {
+      Serial.print('\t');
+    }
+    Serial.print(entry.name());
+    if (entry.isDirectory()) {
+      Serial.println("/");
+      printDirectory(entry, numTabs + 1);
+    } else {
+      // files have sizes, directories do not
+      Serial.println("\t\t");
+    }
+    entry.close();
+  }
+}
+
+
+//
 // HELPER FUNCTIONS
 //
 void getTrackFilepath(int trackNumber) {
@@ -1056,15 +1279,15 @@ bool fileExists(char dir[]) {
 }
 
 void deleteAll() {
-  for (int i = -2; i < MAX_SESSIONS; i++) {
-    deleteSession(i + 1);
+  int numSessions = fileSystem.getSessionOverview(sessions);
+  for (int i = 0; i < numSessions; i++) {
+    sessions[i]->deleteSession();
   }
 }
 
-int findIndex(int value)
-{
+int findIndex(int value) {
   int index = 0;
-  while (index < num_sessions && sessions[index].sessionNum != value) ++index;
+  while (index < num_sessions && sessions[index]->sessionNum != value) ++index;
   Serial.println("Index: " + String(index));
   return index;
 }
@@ -1073,99 +1296,19 @@ int compare(const void *a, const void *b) {
   return (((struct Session *)a)->sessionNum - ((struct Session *)b)->sessionNum);
 }
 
-
-//
-// RETURN POINTER TO AN ARRAY OF EVERY EXISTING SESSION
-//
-int getSessionOverview(Session *sessionArray) {
-  // Scan SD card and return a pointer to an array of every existing session in order
-  Serial.println("Running getSessionOverview...");
-  int numSessions = 0;
-  File dir = SD.open("Sessions");
-  while (true) {
-    File entry =  dir.openNextFile();
-    if (! entry) {
-      // no more files
-      break;
-    }
-    Session newSession = getSession(entry.name());
-    Serial.println("Session Name: " + newSession.sessionName);
-    sessionArray[numSessions] = newSession;
-
-    numSessions += 1;
-    entry.close();
-  }
-
-  if (numSessions > 1) {
-    qsort(sessionArray, numSessions, sizeof(struct Session), compare);
-  }
-
-  return numSessions;
-}
-
-//
-// READ LINE FROM FILE AND RETURN STRING
-//
-String readLine(File readFile) {
-  String output = "";
-  int fileChar = readFile.read();
-  while (fileChar != -1 && fileChar != 44) {
-    output += char(fileChar);
-    fileChar = readFile.read();
-  }
-  return output;
-}
-
-//
-// GET METADATA
-//
-Session getSession(String sessionName) {
-  char filename[50];
-  String fileString;
-  fileString = "Sessions/";
-  fileString += sessionName;
-  fileString += "/meta";
-  fileString.toCharArray(filename, 50);
-  File metaFile = SD.open(filename);
-  Session newSession = {
-    sessionName : readLine(metaFile),      // Name
-    sessionNum : readLine(metaFile).toInt(),  // Number
-    sessionBPM : readLine(metaFile).toInt(),  // BPM
-    sessionLength : readLine(metaFile).toInt(),   // Length
-    trackOne: readLine(metaFile),
-    trackTwo: readLine(metaFile),
-    trackThree: readLine(metaFile),
-    trackFour: readLine(metaFile)
-  };
-  metaFile.close();
-
-  return newSession;
-}
-
-
-//
-// INITIALIZE NEW TRACK
-//
-void createSession(int sessionNum, uint16_t session_length) {
-  // Creating file structure of new session
-  String fileString = "Sessions/";
-  fileString += sessionNum;
-  char filename[50];
-  fileString.toCharArray(filename, 50);
-  SD.mkdir(filename);
-  if (fileExists(filename)) {
-    Serial.printf("%s is created \n", filename);
-  }
-  else {
-    Serial.printf("Error creating %s\n", filename);
-  }
-  fileString += "/meta";
-  fileString.toCharArray(filename, 50);
-  writeMetadata(filename, sessionNum, session_length);
-
+void updateSessions(int sessionNum) {
   // Update global data
-  num_sessions = getSessionOverview(sessions);
-  selected_session = findIndex(sessionNum);
+  num_sessions = fileSystem.getSessionOverview(sessions);
+  if (sessionNum >= 0) {
+    selected_session = findIndex(sessionNum);
+  } else {
+    if (selected_session > 0) {
+      selected_session--;
+    }
+    if (num_sessions == 0) {
+      selected_session = 0;
+    }
+  }
   selected_track = 0;
   if (num_sessions >= 3) {
     if (selected_session > viewable_sessions[2] || viewable_sessions[2] >= num_sessions) {
@@ -1180,115 +1323,20 @@ void createSession(int sessionNum, uint16_t session_length) {
   }
 }
 
-void writeMetadata(char* filename, int sessionNum, uint16_t session_length) {
-  File dataFile = SD.open(filename, FILE_WRITE);
-  if (dataFile) {
-    dataFile.print("Session_" + String(sessionNum) + ','); // Name
-    dataFile.print(String(sessionNum) + ","); // Number
-    dataFile.print("85,"); // BPM
-    dataFile.print(String(session_length) + ","); // Length
-    dataFile.print("1.RAW,2.RAW,3.RAW,4.RAW"); // Four Tracks
-    dataFile.close();
-  }
-  else {
-    Serial.println("Error opening filename in writeMetadata");
-  }
-}
-
-//
-// DELETE SESSION FILES AND FOLDER
-//
-void deleteSession(int sessionNum) {
-  String fileString = "Sessions/";
-  fileString += sessionNum;
-  String tmpString = fileString;
-  char filename[50];
-  fileString.toCharArray(filename, 50);
-  File dir = SD.open(filename);
-  // Delete all
-  while (true) {
-    File entry = dir.openNextFile();
-    if (! entry) {
-      // no more files
-      break;
-    }
-    tmpString += "/";
-    tmpString += entry.name();
-    tmpString.toCharArray(filename, 50);
-    SD.remove(filename);
-    Serial.println("Removed file");
-  }
-  fileString.toCharArray(filename, 50);
-  SD.rmdir(filename);
-  if (! fileExists(filename)) {
-    Serial.printf("Directory %s is removed\n", filename);
-  }
-  else {
-    Serial.printf("ERROR: The session %s was not removed\n", filename);
-  }
-
-  // Update global data
-  num_sessions = getSessionOverview(sessions);
-  if (selected_session > 0) {
-    selected_session--;
-  }
-  if (num_sessions == 0) {
-    selected_session = 0;
-  }
-  if (num_sessions >= 3) {
-    if (selected_session > viewable_sessions[2] || viewable_sessions[2] >= num_sessions) {
-      viewable_sessions[0] = selected_session - 2;
-      viewable_sessions[1] = selected_session - 1;
-      viewable_sessions[2] = selected_session;
-    } else if (selected_session < viewable_sessions[0]) {
-      viewable_sessions[0] = selected_session;
-      viewable_sessions[1] = selected_session + 1;
-      viewable_sessions[2] = selected_session + 2;
-    }
-  }
-}
-
-//
-// DEBUGGING: PRINT FILE SYSTEM
-//
-void printDirectory(File dir, int numTabs) {
-  while (true) {
-
-    File entry =  dir.openNextFile();
-    if (! entry) {
-      // no more files
-      break;
-    }
-    for (uint8_t i = 0; i < numTabs; i++) {
-      Serial.print('\t');
-    }
-    Serial.print(entry.name());
-    if (entry.isDirectory()) {
-      Serial.println("/");
-      printDirectory(entry, numTabs + 1);
-    } else {
-      // files have sizes, directories do not
-      Serial.print("\t\t");
-      Serial.println(entry.size(), DEC);
-    }
-    entry.close();
-  }
-}
-
 
 // CORE FUNCTIONS
 int findNewSession() {
   int newSessionNum = -1;
   if (num_sessions < MAX_SESSIONS) {
-    if (num_sessions == 0 || (num_sessions > 0 && sessions[0].sessionNum > 1)) {
+    if (num_sessions == 0 || (num_sessions > 0 && sessions[0]->sessionNum > 1)) {
       // new session is before all existing sessions
       newSessionNum = 1;
     } else if (num_sessions == 1) {
-      newSessionNum = sessions[0].sessionNum + 1;
+      newSessionNum = sessions[0]->sessionNum + 1;
     } else {
       for (int i = 0; i < num_sessions; i++) {
-        if (i == num_sessions - 1 || sessions[i].sessionNum + 1 < sessions[i+1].sessionNum) {
-          newSessionNum = sessions[i].sessionNum + 1;
+        if (i == num_sessions - 1 || sessions[i]->sessionNum + 1 < sessions[i+1]->sessionNum) {
+          newSessionNum = sessions[i]->sessionNum + 1;
           break;
         }
       }
