@@ -125,7 +125,7 @@ struct Track
 class Session 
 {
   public:
-    Session(int num, int BPM, int len);
+    Session(int num, int bpm, int len);
     Session() {};
     int sessionNum;
     int sessionBPM;
@@ -154,7 +154,7 @@ class FileClass
 {
   public:
   int getSessionOverview(Session **sessionArray); // Takes a preallocated empty session array, returns size and populates it
-  Session getSession(int sessionNum); // Takes a session number, returns a session object
+  Session* getSession(int sessionNum); // Takes a session number, returns a session object
   
   // Helper functions
 
@@ -212,7 +212,7 @@ int num_sessions; // number of existing sessions
 
 Session* sessions[MAX_SESSIONS]; // empty list of session pointers
 
-Session current_session = Session();
+Session* current_session;
 
 // menu selection global variables
 int selected_home_option = 0;
@@ -269,107 +269,628 @@ File root;
 
 FileClass fileSystem = FileClass();
 
-// SETUP AND LOOP FUNCTIONS
-void setup() {
-  Serial.begin(9600);
-  while (!Serial);
 
-  AudioMemory(60); // Memory for all audio funcitons especially recording buffer
-  sgtl5000_1.enable();
-  sgtl5000_1.inputSelect(myInput);
-  sgtl5000_1.volume(1);
-
-  SPI.setMOSI(SDCARD_MOSI_PIN);
-  SPI.setSCK(SDCARD_SCK_PIN);
-  if (!(SD.begin(SDCARD_CS_PIN))) {
-    while (1) {
-      //Serial.println("Unable to access the SD card");
-      delay(500);
+// CORE FUNCTIONS
+int findNewSession() {
+  int newSessionNum = -1;
+  if (num_sessions < MAX_SESSIONS) {
+    if (num_sessions == 0 || (num_sessions > 0 && sessions[0]->sessionNum > 1)) {
+      // new session is before all existing sessions
+      newSessionNum = 1;
+    } else if (num_sessions == 1) {
+      newSessionNum = sessions[0]->sessionNum + 1;
+    } else {
+      for (int i = 0; i < num_sessions; i++) {
+        if (i == num_sessions - 1 || sessions[i]->sessionNum + 1 < sessions[i+1]->sessionNum) {
+          newSessionNum = sessions[i]->sessionNum + 1;
+          break;
+        }
+      }
     }
   }
+  Serial.println("New Session: " + String(newSessionNum));
+  return newSessionNum;
+}
 
-  // Track Mixer
-  mixer1.gain(0, 0.5); // Track 1
-  mixer1.gain(1, 0.5); // Track 2
-  mixer1.gain(2, 0.5); // Track 3
-  mixer1.gain(3, 0.5); // Track 4
+void newTrack() {
 
-  // Metronome Mixer
-  mixer2.gain(0, 1);
+}
 
-  //Track and Metronome Mixer
-  mixer3.gain(0, 0.4); // Track Mixer
-  mixer3.gain(1, 0.7); // Metronome Mixer
+void playSession() {
 
-  // initialize pins as inputs:
-  pinMode(leftButton, INPUT_PULLUP);
-  pinMode(rightButton, INPUT_PULLUP);
-  pinMode(selectButton, INPUT_PULLUP);
-  pinMode(backButton, INPUT_PULLUP);
-  pinMode(clickButton, INPUT_PULLDOWN);
-  pinMode(hapticButton, INPUT_PULLDOWN);
-  pinMode(playrecButton, INPUT_PULLDOWN);
+}
 
-  pinMode(beatLED, OUTPUT);
-  pinMode(clickLED, OUTPUT);
-  pinMode(hapticLED, OUTPUT);
-  pinMode(recordingLED, OUTPUT);
+void pauseSession() {
 
-  // initialize beat timer
-  beatTimer.begin(sendBeat, 0.5 * (60 * pow(10, 6)) / statusBar.bpm);
-  recordTimer.begin(recordISR, 5000);
+}
 
-  // initialize ISRs
-  attachInterrupt(digitalPinToInterrupt(leftButton), leftButton_ISR, FALLING);
-  attachInterrupt(digitalPinToInterrupt(rightButton), rightButton_ISR, FALLING);
-  attachInterrupt(digitalPinToInterrupt(selectButton), selectButton_ISR, FALLING);
-  attachInterrupt(digitalPinToInterrupt(backButton), backButton_ISR, FALLING);
-  attachInterrupt(digitalPinToInterrupt(clickButton), clickButton_ISR, FALLING);
-  attachInterrupt(digitalPinToInterrupt(hapticButton), hapticButton_ISR, FALLING);
-  attachInterrupt(digitalPinToInterrupt(playrecButton), playrecButton_ISR, FALLING);
+void playTrack() {
 
-  attachInterrupt(digitalPinToInterrupt(volPin1), changeVOL_UP,   CHANGE);
-  attachInterrupt(digitalPinToInterrupt(volPin2), changeVOL_DOWN, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(BPMPin1), changeBPM_UP,   CHANGE);
-  attachInterrupt(digitalPinToInterrupt(BPMPin2), changeBPM_DOWN, CHANGE);
+}
 
+void pauseTrack() {
 
-  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3D)) { // Address 0x3D for 128x64
-    Serial.println(F("SSD1306 allocation failed"));
-    for (;;); // Don't proceed, loop forever
+}
+
+void muteTrack() {
+
+}
+
+void eraseTrack() {
+
+}
+void startRecording() {
+  Serial.println("startRecording");
+  if (SD.exists(frec.name())) {
+    // The SD library writes new data to the end of the
+    // file, so to start a new recording, the old file
+    // must be deleted before new data is written.
+    Serial.println("Removing " + String(frec.name()));
+    SD.remove(frec.name());
   }
 
-  display.clearDisplay();
-  display.display();
-
-  XBee.begin(115200);
-
-  deleteAll(); // deletes all sessions on the card (for testing purposes)
-//  createSession(2,16);
+  frec = SD.open("DUMMY.RAW", FILE_WRITE);
   
-  // get session information from SD card
-  num_sessions = fileSystem.getSessionOverview(sessions); // populates list of sessions, returns the number of sessions
-
-  root = SD.open("Sessions");
-  for (int i = 0; i < num_sessions; i++) {
-    Serial.println(sessions[i]->sessionNum);
-    Serial.println(sessions[i]->sessionBPM);
-    Serial.println(sessions[i]->sessionLength);
+  if (frec) {
+    queue1.begin();
+    mode = 1;
   }
-  root.rewindDirectory();
-  root.close();
-
 }
 
-void loop() {
-  handleStatus();
-  updateDisplay();
-
-//  if(recording && (recording_count > lead_in_beats) && !pendingRecording) {
-//    //Serial.println("Continue Recording");
-//    continueRecording();
-//  }
+void stopRecording() {
+  Serial.println("stopRecording");
+  queue1.end();
+  if (mode == 1) {
+    while (queue1.available() > 0) {
+      Serial.println("Waiting");
+      frec.write((byte*)queue1.readBuffer(), 256);
+      queue1.freeBuffer();
+    }
+    Serial.println("Done waiting");
+    frec.close();
+  }
+  mode = 0;
 }
+
+
+void continueRecording() {
+  Serial.println("Continue Recording");
+  if (queue1.available() >= 2) {
+    byte buffer[512];
+    // Fetch 2 blocks from the audio library and copy
+    // into a 512 byte buffer.  The Arduino SD library
+    // is most efficient when full 512 byte sector size
+    // writes are used.
+    memcpy(buffer, queue1.readBuffer(), 256);
+    queue1.freeBuffer();
+    memcpy(buffer+256, queue1.readBuffer(), 256);
+    queue1.freeBuffer();
+    // write all 512 bytes to the SD card
+    elapsedMicros usec = 0;
+    frec.write(buffer, 512);
+    // Uncomment these lines to see how long SD writes
+    // are taking.  A pair of audio blocks arrives every
+    // 5802 microseconds, so hopefully most of the writes
+    // take well under 5802 us.  Some will take more, as
+    // the SD library also must write to the FAT tables
+    // and the SD card controller manages media erase and
+    // wear leveling.  The queue1 object can buffer
+    // approximately 301700 us of audio, to allow time
+    // for occasional high SD card latency, as long as
+    // the average write time is under 5802 us.
+    Serial.print("SD write, us=");
+    Serial.println(usec);
+  }
+}
+
+void deleteRecording() {
+  Serial.println("deleteRecording");
+  stopRecording();
+  SD.remove(frec.name());
+}
+
+void enterSetting(int selected_setting) {
+  switch(selected_setting) {
+    case(BEAT_SOUND): {
+      break;
+    }
+    case(DEFAULT_BPM): {
+      menu_id = MENU_SET_DEF_BPM;
+      break;
+    }
+    case(DEFAULT_LOOP_LEN): {
+      menu_id = MENU_SET_DEF_LOOP_LEN;
+      break;
+    }
+    default: {
+      Serial.println("ERROR");
+    }
+  }
+}
+
+// Interrupt Service Routines
+void debounce_normal(bool &flag, String message) {
+  unsigned long interrupt_time = millis();
+  if (interrupt_time - last_interrupt_time > INTERRUPT_THRESHOLD)
+  {
+    flag = true;
+    //Serial.println(message);
+  }
+  last_interrupt_time = interrupt_time;
+}
+
+void debounce_toggle(bool& flag, int pin, String message) {
+  unsigned long interrupt_time = millis();
+  if (interrupt_time - last_interrupt_time > INTERRUPT_THRESHOLD) {
+    flag = !flag;
+    if (flag) {
+      digitalWrite(pin, HIGH);
+      //Serial.println(message + "->on");
+    } else {
+      digitalWrite(pin, LOW);
+      //Serial.println(message + "->off");
+    }
+  }
+  last_interrupt_time = interrupt_time;
+}
+
+void sendBeat() {
+  // blink LED
+  if (beat_LED_enable) {
+    digitalWrite(beatLED, LOW);
+    beat_LED_enable = false;
+  } else {
+    digitalWrite(beatLED, HIGH);
+    beat_LED_enable = true;
+  }
+  // conditionally send click
+  if (click_enable && beat_LED_enable) {
+    playMem1.play(AudioSampleMetronome);
+  }
+  // conditionally send pulse to haptic
+  if(haptic_enable && beat_LED_enable) {
+    XBee.write(1);
+  } else {//if(haptic_enable) {
+    XBee.write(2);
+  }
+  // increment counter if recording
+  if(recording) {
+    Serial.println("Recording Count : " + String(recording_count));
+    if (recording_count > (lead_in_beats + session_length)) {
+      // stop recording
+      stopRecording();
+      continueRecording_enable = false;
+      Serial.println("Recording Done");
+      playSdRaw1.play("DUMMY.RAW");
+      Serial.println("Playing recording");
+      recording = false;
+      recording_count = 0;
+      digitalWrite(recordingLED, LOW);
+    } else if (recording_count > lead_in_beats) {
+      digitalWrite(recordingLED, HIGH);
+      // start recording
+      if(pendingRecording) {
+        frec = SD.open("DUMMY.RAW", FILE_WRITE);
+        startRecording();
+        pendingRecording = false;
+//        onlyRecording();
+      } else {
+        // continue recording
+        continueRecording_enable = true;
+//        continueRecording();
+      }
+    } else {
+      if (beat_LED_enable) {
+        digitalWrite(recordingLED, HIGH);
+      } else {
+        digitalWrite(recordingLED, LOW);
+      }
+    }
+    if (beat_LED_enable) {
+      recording_count++;
+    }
+  }
+}
+
+void onlyRecording() {
+//  cli();
+  Serial.println("Only recording");
+  int startTimer = millis();
+  int endTimer = startTimer;
+  while ((endTimer - startTimer) < 4000) {
+    continueRecording();
+    endTimer = millis();
+  }
+  Serial.println("Done continuing");
+  stopRecording();
+  playSdRaw1.play("DUMMY.RAW");
+  Serial.println("Playing recording");
+//  sei();
+}
+
+void recordISR() {
+  if(continueRecording_enable) {
+     continueRecording();
+  } 
+}
+
+void changeBPM() {
+  beatTimer.update((0.5 * 60 * pow(10, 6)) / statusBar.bpm);
+}
+void changeVol() {
+  float newVol = float(statusBar.vol) / MAX_VOL;
+  mixer3.gain(0, newVol * 2 / 3); // Track Mixer
+  mixer3.gain(1, newVol); // Metronome Mixer
+}
+void leftButton_ISR() {
+  debounce_normal(left_pressed_flag, "Left button pressed");
+}
+void rightButton_ISR() {
+  debounce_normal(right_pressed_flag, "Right button pressed");
+}
+void selectButton_ISR() {
+  debounce_normal(select_pressed_flag, "Select button pressed");
+}
+void backButton_ISR() {
+  debounce_normal(back_pressed_flag, "Back button pressed");
+}
+void playrecButton_ISR() {
+  debounce_normal(play_rec_pressed_flag, "Play/rec button pressed");
+}
+void clickButton_ISR() {
+  debounce_toggle(click_enable, clickLED, "Click button pressed");
+}
+void hapticButton_ISR() {
+  debounce_toggle(haptic_enable, hapticLED, "Haptic button pressed");
+}
+
+// Interrupt on A changing state
+void changeVOL_DOWN() {
+  // debounce
+  if ( VOL_rotating ) delay (1);  // wait a little until the bouncing is done
+
+  // Test transition, did things really change?
+  if ( digitalRead(volPin1) != VOL_A_set ) { // debounce once more
+    VOL_A_set = !VOL_A_set;
+
+    // adjust counter + if A leads B
+    if ( VOL_A_set && !VOL_B_set )
+      VOL_encoderPos += 1;
+
+    VOL_rotating = false;  // no more debouncing until loop() hits again
+  }
+}
+
+// Interrupt on B changing state, same as A above
+void changeVOL_UP() {
+  if ( VOL_rotating ) delay (1);
+  if ( digitalRead(volPin2) != VOL_B_set ) {
+    VOL_B_set = !VOL_B_set;
+    //  adjust counter - 1 if B leads A
+    if ( VOL_B_set && !VOL_A_set )
+      VOL_encoderPos -= 1;
+
+    VOL_rotating = false;
+  }
+}
+
+// Interrupt on A changing state
+void changeBPM_DOWN() {
+  // debounce
+  if ( BPM_rotating ) delay (1);  // wait a little until the bouncing is done
+
+  // Test transition, did things really change?
+  if ( digitalRead(BPMPin1) != BPM_A_set ) { // debounce once more
+    BPM_A_set = !BPM_A_set;
+
+    // adjust counter + if A leads B
+    if ( BPM_A_set && !BPM_B_set )
+      BPM_encoderPos += 1;
+
+    BPM_rotating = false;  // no more debouncing until loop() hits again
+  }
+}
+
+// Interrupt on B changing state, same as A above
+void changeBPM_UP() {
+  if ( BPM_rotating ) delay (1);
+  if ( digitalRead(BPMPin2) != BPM_B_set ) {
+    BPM_B_set = !BPM_B_set;
+    //  adjust counter - 1 if B leads A
+    if ( BPM_B_set && !BPM_A_set )
+      BPM_encoderPos -= 1;
+
+    BPM_rotating = false;
+  }
+}
+
+void handleStatus() {
+  if (VOL_encoderPos > 201) VOL_encoderPos = MIN_VOL;
+  if (VOL_encoderPos > MAX_VOL) VOL_encoderPos = MAX_VOL;
+
+  if (BPM_encoderPos < MIN_BPM) BPM_encoderPos = MIN_BPM;
+  if (BPM_encoderPos > MAX_BPM) BPM_encoderPos = MAX_BPM;
+  statusBar.vol = VOL_encoderPos;
+  changeVol();
+
+  if (!recording) {
+    statusBar.bpm = BPM_encoderPos;
+    changeBPM();
+  }
+}
+
+
+// File System Functions
+
+//
+// Define FileClass Methods
+//
+
+int FileClass::getSessionOverview(Session **sessionArray) {
+  // Scan SD card and return a pointer to an array of every existing session in order
+  Serial.println("Running getSessionOverview...");
+  int numSessions = 0;
+  File dir = SD.open("Sessions");
+  while (true) {
+    File entry =  dir.openNextFile();
+    if (! entry) {
+      // no more files  
+      break;
+      }
+    Serial.print("Session Name: ");
+    Serial.println(entry.name());
+    sessionArray[numSessions] = getSession(String(entry.name()).toInt());
+    numSessions += 1;
+    entry.close();
+  }
+  Serial.println("Number of sessions: " + String(numSessions));
+  return numSessions;
+}
+
+Session* FileClass::getSession(int Num) {
+  char sessionFilepath [50];
+  char tmpFilepath [50];
+  char buff [50];
+  String(Num).toCharArray(buff, 50);
+  strcpy(sessionFilepath, "Sessions/");
+  strcat(sessionFilepath, buff);
+  strcat(sessionFilepath, "/meta");
+  if (SD.exists(sessionFilepath)) {
+    Serial.printf("Getting session %d\n", Num);
+  } else {
+    Serial.printf("Error: Cannot get session %d\n", Num);
+  }
+  File metaFile = SD.open(sessionFilepath);
+  int sessionNum = metaFile.readStringUntil('\n').trim().toInt();
+  int sessionBPM = metaFile.readStringUntil('\n').trim().toInt(); 
+  int sessionLength = metaFile.readStringUntil('\n').trim().toInt(); 
+  Session* session = new Session(sessionNum, sessionBPM, sessionLength);
+  // Update track properties
+  for (int i = 0; i < 4; i++) {
+    if (SD.exists(session->trackList[i].trackFilepath)) {
+      Serial.printf("Session %s, Track %d exists\n", sessionNum, i);
+      session->trackList[i].trackExists = 1;
+      session->trackList[i].trackMute = metaFile.readStringUntil('\n').trim().toInt(); 
+      } else{
+        //Serial.printf("Track %d does not exist\n", i);
+        int throwaway = metaFile.readStringUntil('\n').trim().toInt(); 
+      }
+    } 
+  metaFile.close();
+  return session;
+}
+
+
+//
+// Define Session Methods
+//
+
+Session::Session(int num, int bpm, int len) {
+  char tmpFilepath [50];
+  char buff1 [50];
+  String(num).toCharArray(buff1, 50);
+  sessionNum = num;
+  sessionBPM = bpm;
+  sessionLength = len;
+  strcpy(_sessionFilepath, "Sessions/");
+  strcat(_sessionFilepath, buff1);
+  strcat(_sessionFilepath, "/");
+  strcpy(_metaFilepath, _sessionFilepath);
+  strcat(_metaFilepath, "meta"); 
+  // Generate track filepaths
+  char buff2[4];
+  for (int i = 0; i < 4; i++) {
+      strcpy(tmpFilepath, _sessionFilepath);
+      strcat(tmpFilepath, "track_");
+      strcat(tmpFilepath, itoa(i, buff2, 4));
+      strcat(tmpFilepath, ".raw");
+      strcpy(trackList[i].trackFilepath, tmpFilepath);
+      trackList[i].trackMute = 1;
+    } 
+  if (SD.exists(_sessionFilepath)) {
+    Serial.printf("Getting directory %s\n", _sessionFilepath);
+  } else {
+    Serial.printf("Making directory %s\n", _sessionFilepath);
+    SD.mkdir(_sessionFilepath);
+    updateMetadata();
+  }
+  if (!SD.exists(_sessionFilepath)) {
+    Serial.printf("Error creating %s\n", _sessionFilepath);
+  }
+}
+
+void Session::deleteSession() {
+  File dir = SD.open(_sessionFilepath);
+  char tmpFilepath[50];
+  // Delete all files in folder
+  while (true) {
+    File entry = dir.openNextFile();
+    if (! entry) {
+      // no more files
+      break;
+    }
+    strcpy(tmpFilepath, _sessionFilepath);
+    strcat(tmpFilepath, entry.name());
+    SD.remove(tmpFilepath);
+    Serial.printf("Removed file %s\n", tmpFilepath);
+  }
+  SD.rmdir(_sessionFilepath);
+  if (SD.exists(_sessionFilepath)){
+    Serial.printf("ERROR: The session %s was not removed\n", _sessionFilepath);
+  }
+  else {
+    Serial.printf("Directory %s is removed\n", _sessionFilepath);
+  }
+}
+
+void Session::updateMetadata() {
+  if (SD.exists(_metaFilepath)) {
+    SD.remove(_metaFilepath);
+    Serial.printf("Updating metadata for %d\n", sessionNum);
+  } else {
+    Serial.printf("Initializing metadata for %d\n", sessionNum);
+  }
+  File dataFile = SD.open(_metaFilepath, FILE_WRITE);
+  if (dataFile) {
+    dataFile.println(String(sessionNum)); // number
+    dataFile.println(String(sessionBPM)); // bpm
+    dataFile.println(String(sessionLength)); // length
+    dataFile.println(String(trackList[0].trackMute)); // track mute options
+    dataFile.println(String(trackList[1].trackMute));
+    dataFile.println(String(trackList[2].trackMute));
+    dataFile.println(String(trackList[3].trackMute));
+    dataFile.close();
+  } else {
+    Serial.println("Error in updateMetadata");
+  } 
+}
+
+File Session::createTrack(int trackNum) {
+  Serial.printf("Creating track %d\n", trackNum);
+  if (trackNum > 3) {
+    Serial.printf("Track must be between 0 and 3");
+  }
+  trackList[trackNum].trackExists = 1;
+  return SD.open(trackList[trackNum].trackFilepath, FILE_WRITE);
+}
+
+void Session::deleteTrack(int trackNum) {
+  Serial.printf("Deleting track %d\n", trackNum);
+  trackList[trackNum].trackExists = 0;
+  SD.remove(trackList[trackNum].trackFilepath);
+  updateMetadata();
+}
+
+void Session::muteTrack(int trackNum) {
+  Serial.printf("Muting track %d\n", trackNum);
+  trackList[trackNum].trackMute = 1;
+  updateMetadata();
+}
+
+void Session::unmuteTrack(int trackNum) {
+  Serial.printf("Unmuting track %d\n", trackNum);
+  trackList[trackNum].trackMute = 0;
+  updateMetadata();
+}
+
+//
+// DEBUGGING CODE
+//
+void printDirectory(File dir, int numTabs) {
+  while (true) {
+
+    File entry =  dir.openNextFile();
+    if (! entry) {
+      // no more files  
+      break;
+    }
+    for (uint8_t i = 0; i < numTabs; i++) {
+      Serial.print('\t');
+    }
+    Serial.print(entry.name());
+    if (entry.isDirectory()) {
+      Serial.println("/");
+      printDirectory(entry, numTabs + 1);
+    } else {
+      // files have sizes, directories do not
+      Serial.println("\t\t");
+    }
+    entry.close();
+  }
+}
+
+
+//
+// HELPER FUNCTIONS
+//
+void getTrackFilepath(int trackNumber) {
+  // Use global variable selected_session
+  // session/track.raw
+  String fileString = "Sessions/";
+  fileString += selected_session;
+  fileString += "/";
+  fileString += trackNumber;
+  fileString += ".wav";
+  char filename[50];
+  fileString.toCharArray(filename, 50);
+  Serial.println(filename);
+}
+
+bool fileExists(char dir[]) {
+  if (SD.exists(dir)) {
+    return 1;
+  }
+  else {
+    return 0;
+  }
+}
+
+void deleteAll() {
+  int numSessions = fileSystem.getSessionOverview(sessions);
+  for (int i = 0; i < numSessions; i++) {
+    sessions[i]->deleteSession();
+  }
+}
+
+int findIndex(int value) {
+  int index = 0;
+  while (index < num_sessions && sessions[index]->sessionNum != value) ++index;
+  Serial.println("Index: " + String(index));
+  return index;
+}
+
+int compare(const void *a, const void *b) {
+  return (((struct Session *)a)->sessionNum - ((struct Session *)b)->sessionNum);
+}
+
+void updateSessions(int sessionNum) {
+  // Update global data
+  num_sessions = fileSystem.getSessionOverview(sessions);
+  if (sessionNum >= 0) {
+    selected_session = findIndex(sessionNum);
+  } else {
+    if (selected_session > 0) {
+      selected_session--;
+    }
+    if (num_sessions == 0) {
+      selected_session = 0;
+    }
+  }
+  current_session = sessions[selected_session];
+  selected_track = 0;
+  if (num_sessions >= 3) {
+    if (selected_session > viewable_sessions[2] || viewable_sessions[2] >= num_sessions) {
+      viewable_sessions[0] = selected_session - 2;
+      viewable_sessions[1] = selected_session - 1;
+      viewable_sessions[2] = selected_session;
+    } else if (selected_session < viewable_sessions[0]) {
+      viewable_sessions[0] = selected_session;
+      viewable_sessions[1] = selected_session + 1;
+      viewable_sessions[2] = selected_session + 2;
+    }
+  }
+}
+
 
 // DISPLAY FUNCTIONS
 void drawStatusBar() {
@@ -449,13 +970,13 @@ void drawSessionSelect(uint8_t selected) {
   } else if (num_sessions == 1) {
     String sess_l = "S" + String(sessions[viewable_sessions[0]]->sessionNum);
     boxed_text(sess_l, 20, display.height() / 2 - 4, IS_SEL_LEFT(highlight));
-    centerText(String(sessions[selected_session]->sessionNum), 40);
+    centerText("Session " + String(sessions[selected_session]->sessionNum), 40);
   } else if (num_sessions == 2) {
     String sess_l = "S" + String(sessions[viewable_sessions[0]]->sessionNum);
     String sess_c = "S" + String(sessions[viewable_sessions[1]]->sessionNum);
     boxed_text(sess_l, 20, display.height() / 2 - 4, IS_SEL_LEFT(highlight));
     boxed_text(sess_c, 60, display.height() / 2 - 4, IS_SEL_CENTER(highlight));
-    centerText(String(sessions[selected_session]->sessionNum), 40);
+    centerText("Session " + String(sessions[selected_session]->sessionNum), 40);
   } else {
     String sess_l = "S" + String(sessions[viewable_sessions[0]]->sessionNum);
     String sess_c = "S" + String(sessions[viewable_sessions[1]]->sessionNum);
@@ -463,7 +984,7 @@ void drawSessionSelect(uint8_t selected) {
     boxed_text(sess_l, 20, display.height() / 2 - 4, IS_SEL_LEFT(highlight));
     boxed_text(sess_c, 60, display.height() / 2 - 4, IS_SEL_CENTER(highlight));
     boxed_text(sess_r, 100, display.height() / 2 - 4, IS_SEL_RIGHT(highlight));
-    centerText(String(sessions[selected_session]->sessionNum), 40);
+    centerText("Session " + String(sessions[selected_session]->sessionNum), 40);
   }
   if (viewable_sessions[0] > 0) { // left arrow
     display.setCursor(2, display.height() / 2 - 4);
@@ -490,7 +1011,7 @@ void drawSessionConfig(int session_number, bool highlight) {
 
 void drawTrackSelect(uint8_t existing_tracks, uint8_t muted_tracks, uint8_t selected) {
   uint8_t highlight = 0x8 >> selected;
-  draw_level("Session " + String(current_session.sessionNum));
+  draw_level("Session " + String(current_session->sessionNum));
   display.setCursor(0, 20);
   display.println("Track Select");
   String track_dne = " + ";
@@ -638,7 +1159,7 @@ void updateDisplay() {
         // quick record pressed - new session with new track
         int newSessionNum = findNewSession();
         if (newSessionNum > 0) {
-            current_session = Session(newSessionNum, statusBar.bpm, session_length);
+            current_session = new Session(newSessionNum, statusBar.bpm, session_length);
             recording = true;
             pendingRecording = true;
             menu_id = MENU_TRACK_CONFIG;
@@ -655,7 +1176,7 @@ void updateDisplay() {
        if (select_pressed_flag) {
         int newSessionNum = findNewSession();
           if (newSessionNum > 0) {
-            current_session = Session(newSessionNum, statusBar.bpm, session_length);
+            current_session = new Session(newSessionNum, statusBar.bpm, session_length);
             menu_id = MENU_TRACK_CONFIG;
             selected_track_option = TRACK_MUTE;
           } else {
@@ -774,14 +1295,14 @@ void updateDisplay() {
         // quick record pressed - new session with new track
         int newSessionNum = findNewSession();
         if (newSessionNum > 0) {
-            current_session = Session(newSessionNum, statusBar.bpm, session_length);
+            current_session = new Session(newSessionNum, statusBar.bpm, session_length);
             recording = true;
             pendingRecording = true;
             menu_id = MENU_TRACK_CONFIG;
             selected_track_option = TRACK_MUTE;
           } else {
             menu_id = ERROR_MENU;
-          } 
+          }
         play_rec_pressed_flag = false;
       }
       break;
@@ -792,6 +1313,7 @@ void updateDisplay() {
       if (right_pressed_flag) {
         if (selected_session < num_sessions - 1) {
           selected_session++;
+          current_session = sessions[selected_session];
           Serial.println("Selected session: " + String(selected_session));
         }
         if (selected_session > viewable_sessions[2]) {
@@ -804,6 +1326,7 @@ void updateDisplay() {
       if (left_pressed_flag) {
         if (selected_session > 0) {
           selected_session--;
+          current_session = sessions[selected_session];
           Serial.println("Selected session: " + String(selected_session));
         }
         if (selected_session < viewable_sessions[0]) {
@@ -832,7 +1355,7 @@ void updateDisplay() {
         // quick record pressed - new session with new track
         int newSessionNum = findNewSession();
         if (newSessionNum > 0) {
-            current_session = Session(newSessionNum, statusBar.bpm, session_length);
+            current_session = new Session(newSessionNum, statusBar.bpm, session_length);
             recording = true;
             pendingRecording = true;
             menu_id = MENU_TRACK_CONFIG;
@@ -870,7 +1393,7 @@ void updateDisplay() {
           statusBar.bpm = sessions[selected_session]->sessionBPM;
           changeBPM();
           session_length = sessions[selected_session]->sessionLength;
-          current_session = *sessions[selected_session];
+          current_session = sessions[selected_session];
           selected_track = 0;
         }
         if (selected_session_config_option == SESSION_DELETE) {
@@ -882,14 +1405,14 @@ void updateDisplay() {
       // OTHER FUNCTIONALITY
       if (play_rec_pressed_flag) {
         // quick record pressed - new track in current session
-        current_session = *sessions[selected_session];
+        current_session = sessions[selected_session];
         menu_id = MENU_TRACK_CONFIG;
         selected_track_option = TRACK_MUTE;
         play_rec_pressed_flag = false;
       }
       break;
 
-    case (ARE_YOU_SURE): {
+    case (ARE_YOU_SURE):
       areYouSure(are_you_sure);
       if (select_pressed_flag && !are_you_sure) {
         menu_id = MENU_SESSION_SEL;
@@ -897,7 +1420,10 @@ void updateDisplay() {
       }
       if (select_pressed_flag && are_you_sure) {
         menu_id = MENU_SESSION_SEL;
-        deleteSession(current_session);
+        Serial.println("Current session number: " + String(current_session->sessionNum));
+        Serial.println("Current session BPM: " + String(current_session->sessionBPM));
+        Serial.println("Current session length: " + String(current_session->sessionLength));
+        current_session->deleteSession();
         updateSessions(-1);
         select_pressed_flag = false;
         are_you_sure = false;
@@ -916,7 +1442,6 @@ void updateDisplay() {
         right_pressed_flag = false;
       }
       break;
-    }
 
     case (MENU_TRACK_SEL):                               // TRACK SELECT
       drawTrackSelect(15, 15, selected_track);
@@ -936,7 +1461,7 @@ void updateDisplay() {
       if (back_pressed_flag) {
         menu_id = MENU_SESSION_CONFIG;
         selected_session_config_option = SESSION_OPEN;
-        updateSessions(current_session.sessionNum);
+        updateSessions(current_session->sessionNum);
         back_pressed_flag = false;
       }
       if (select_pressed_flag) {
@@ -1013,7 +1538,6 @@ void updateDisplay() {
   
           play_rec_pressed_flag = false;
         }
-        break;
     } else {                // recording, so don't accept input
       // cancel if any button is pressed
       // stop recording, turn off LED, delete newly created track
@@ -1048,629 +1572,104 @@ void updateDisplay() {
           play_rec_pressed_flag = false;
         }
     }
+    break;
   }
 }
 
 
-// File System Functions
+// SETUP AND LOOP FUNCTIONS
+void setup() {
+  Serial.begin(9600);
+  while (!Serial);
 
-//
-// Define FileClass Methods
-//
+  AudioMemory(60); // Memory for all audio funcitons especially recording buffer
+  sgtl5000_1.enable();
+  sgtl5000_1.inputSelect(myInput);
+  sgtl5000_1.volume(1);
 
-int FileClass::getSessionOverview(Session **sessionArray) {
-  // Scan SD card and return a pointer to an array of every existing session in order
-  Serial.println("Running getSessionOverview...");
-  int numSessions = 0;
-  File dir = SD.open("Sessions");
-  while (true) {
-    File entry =  dir.openNextFile();
-    if (! entry) {
-      // no more files  
-      break;
-      }
-    Serial.print("Session Name: ");
-    Serial.println(entry.name());
-    Session session = getSession(String(entry.name()).toInt());
-    sessionArray[numSessions] = &session;
-    numSessions += 1;
-    entry.close();
+  SPI.setMOSI(SDCARD_MOSI_PIN);
+  SPI.setSCK(SDCARD_SCK_PIN);
+  if (!(SD.begin(SDCARD_CS_PIN))) {
+    while (1) {
+      //Serial.println("Unable to access the SD card");
+      delay(500);
+    }
   }
+
+  // Track Mixer
+  mixer1.gain(0, 0.5); // Track 1
+  mixer1.gain(1, 0.5); // Track 2
+  mixer1.gain(2, 0.5); // Track 3
+  mixer1.gain(3, 0.5); // Track 4
+
+  // Metronome Mixer
+  mixer2.gain(0, 1);
+
+  //Track and Metronome Mixer
+  mixer3.gain(0, 0.4); // Track Mixer
+  mixer3.gain(1, 0.7); // Metronome Mixer
+
+  // initialize pins as inputs:
+  pinMode(leftButton, INPUT_PULLUP);
+  pinMode(rightButton, INPUT_PULLUP);
+  pinMode(selectButton, INPUT_PULLUP);
+  pinMode(backButton, INPUT_PULLUP);
+  pinMode(clickButton, INPUT_PULLDOWN);
+  pinMode(hapticButton, INPUT_PULLDOWN);
+  pinMode(playrecButton, INPUT_PULLDOWN);
+
+  pinMode(beatLED, OUTPUT);
+  pinMode(clickLED, OUTPUT);
+  pinMode(hapticLED, OUTPUT);
+  pinMode(recordingLED, OUTPUT);
+
+  // initialize beat timer
+  beatTimer.begin(sendBeat, 0.5 * (60 * pow(10, 6)) / statusBar.bpm);
+  recordTimer.begin(recordISR, 5000);
+
+  // initialize ISRs
+  attachInterrupt(digitalPinToInterrupt(leftButton), leftButton_ISR, FALLING);
+  attachInterrupt(digitalPinToInterrupt(rightButton), rightButton_ISR, FALLING);
+  attachInterrupt(digitalPinToInterrupt(selectButton), selectButton_ISR, FALLING);
+  attachInterrupt(digitalPinToInterrupt(backButton), backButton_ISR, FALLING);
+  attachInterrupt(digitalPinToInterrupt(clickButton), clickButton_ISR, FALLING);
+  attachInterrupt(digitalPinToInterrupt(hapticButton), hapticButton_ISR, FALLING);
+  attachInterrupt(digitalPinToInterrupt(playrecButton), playrecButton_ISR, FALLING);
+
+  attachInterrupt(digitalPinToInterrupt(volPin1), changeVOL_UP,   CHANGE);
+  attachInterrupt(digitalPinToInterrupt(volPin2), changeVOL_DOWN, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(BPMPin1), changeBPM_UP,   CHANGE);
+  attachInterrupt(digitalPinToInterrupt(BPMPin2), changeBPM_DOWN, CHANGE);
+
+
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3D)) { // Address 0x3D for 128x64
+    Serial.println(F("SSD1306 allocation failed"));
+    for (;;); // Don't proceed, loop forever
+  }
+
+  display.clearDisplay();
+  display.display();
+
+  XBee.begin(115200);
+
+  deleteAll(); // deletes all sessions on the card (for testing purposes)
   
-  return numSessions;
-}
+  // get session information from SD card
+  num_sessions = fileSystem.getSessionOverview(sessions); // populates list of sessions, returns the number of sessions
 
-Session FileClass::getSession(int Num) {
-  char sessionFilepath [50];
-  char tmpFilepath [50];
-  char buff [50];
-  String(Num).toCharArray(buff, 50);
-  strcpy(sessionFilepath, "Sessions/");
-  strcat(sessionFilepath, buff);
-  strcat(sessionFilepath, "/meta");
-  if (SD.exists(sessionFilepath)) {
-    Serial.printf("Getting session %d\n", Num);
-  } else {
-    Serial.printf("Error: Cannot get session %d\n", Num);
-  }
-  File metaFile = SD.open(sessionFilepath);
-  int sessionNum = metaFile.readStringUntil('\n').trim().toInt();
-  int sessionBPM = metaFile.readStringUntil('\n').trim().toInt(); 
-  int sessionLength = metaFile.readStringUntil('\n').trim().toInt(); 
-  Session session = Session(sessionNum, sessionBPM, sessionLength);
-  // Update track properties
-  for (int i = 0; i < 4; i++) {
-    if (SD.exists(session.trackList[i].trackFilepath)) {
-      Serial.printf("Session %s, Track %d exists\n", sessionNum, i);
-      session.trackList[i].trackExists = 1;
-      session.trackList[i].trackMute = metaFile.readStringUntil('\n').trim().toInt(); 
-      } else{
-        //Serial.printf("Track %d does not exist\n", i);
-        int throwaway = metaFile.readStringUntil('\n').trim().toInt(); 
-      }
-    } 
-  metaFile.close();
-  return session;
-}
-
-
-//
-// Define Session Methods
-//
-
-Session::Session(int Num, int Bpm, int Length) {
-  char tmpFilepath [50];
-  char buff1 [50];
-  String(Num).toCharArray(buff1, 50);
-  sessionNum = Num;
-  sessionBPM = Bpm;
-  sessionLength = Length;
-  strcpy(_sessionFilepath, "Sessions/");
-  strcat(_sessionFilepath, buff1);
-  strcat(_sessionFilepath, "/");
-  strcpy(_metaFilepath, _sessionFilepath);
-  strcat(_metaFilepath, "meta"); 
-  // Generate track filepaths
-  char buff2[4];
-  for (int i = 0; i < 4; i++) {
-      strcpy(tmpFilepath, _sessionFilepath);
-      strcat(tmpFilepath, "track_");
-      strcat(tmpFilepath, itoa(i, buff2, 4));
-      strcat(tmpFilepath, ".raw");
-      strcpy(trackList[i].trackFilepath, tmpFilepath);
-      trackList[i].trackMute = 1;
-    } 
-  if (SD.exists(_sessionFilepath)) {
-    Serial.printf("Getting directory %s\n", _sessionFilepath);
-  } else {
-    Serial.printf("Making directory %s\n", _sessionFilepath);
-    SD.mkdir(_sessionFilepath);
-    updateMetadata();
-  }
-  if (!SD.exists(_sessionFilepath)) {
-    Serial.printf("Error creating %s\n", _sessionFilepath);
+  for (int i = 0; i < num_sessions; i++) {
+    Serial.println(sessions[i]->sessionNum);
+    Serial.println(sessions[i]->sessionBPM);
+    Serial.println(sessions[i]->sessionLength);
   }
 }
 
-void Session::deleteSession() {
-  File dir = SD.open(_sessionFilepath);
-  char tmpFilepath[50];
-  // Delete all files in folder
-  while (true) {
-    File entry = dir.openNextFile();
-    if (! entry) {
-      // no more files
-      break;
-    }
-    strcpy(tmpFilepath, _sessionFilepath);
-    strcat(tmpFilepath, entry.name());
-    SD.remove(tmpFilepath);
-    Serial.printf("Removed file %s\n", tmpFilepath);
-  }
-  SD.rmdir(_sessionFilepath);
-  if (SD.exists(_sessionFilepath)){
-    Serial.printf("ERROR: The session %s was not removed\n", _sessionFilepath);
-  }
-  else {
-    Serial.printf("Directory %s is removed\n", _sessionFilepath);
-  }
-}
+void loop() {
+  handleStatus();
+  updateDisplay();
 
-void Session::updateMetadata() {
-  if (SD.exists(_metaFilepath)) {
-    SD.remove(_metaFilepath);
-    Serial.printf("Updating metadata for %d\n", sessionNum);
-  } else {
-    Serial.printf("Initializing metadata for %d\n", sessionNum);
-  }
-  File dataFile = SD.open(_metaFilepath, FILE_WRITE);
-  if (dataFile) {
-    dataFile.println(String(sessionNum)); // Name
-    dataFile.println(String(sessionBPM)); // BPM
-    dataFile.println(String(sessionLength)); // Length
-    dataFile.println(String(trackList[0].trackMute)); // Track mute options
-    dataFile.println(String(trackList[1].trackMute));
-    dataFile.println(String(trackList[2].trackMute));
-    dataFile.println(String(trackList[3].trackMute));
-    dataFile.close();
-  } else {
-    Serial.println("Error in updateMetadata");
-  } 
-}
-
-File Session::createTrack(int trackNum) {
-  Serial.printf("Creating track %d\n", trackNum);
-  if (trackNum > 3) {
-    Serial.printf("Track must be between 0 and 3");
-  }
-  trackList[trackNum].trackExists = 1;
-  return SD.open(trackList[trackNum].trackFilepath, FILE_WRITE);
-}
-
-void Session::deleteTrack(int trackNum) {
-  Serial.printf("Deleting track %d\n", trackNum);
-  trackList[trackNum].trackExists = 0;
-  SD.remove(trackList[trackNum].trackFilepath);
-  updateMetadata();
-}
-
-void Session::muteTrack(int trackNum) {
-  Serial.printf("Muting track %d\n", trackNum);
-  trackList[trackNum].trackMute = 1;
-  updateMetadata();
-}
-
-void Session::unmuteTrack(int trackNum) {
-  Serial.printf("Unmuting track %d\n", trackNum);
-  trackList[trackNum].trackMute = 0;
-  updateMetadata();
-}
-
-//
-// DEBUGGING CODE
-//
-void printDirectory(File dir, int numTabs) {
-  while (true) {
-
-    File entry =  dir.openNextFile();
-    if (! entry) {
-      // no more files  
-      break;
-    }
-    for (uint8_t i = 0; i < numTabs; i++) {
-      Serial.print('\t');
-    }
-    Serial.print(entry.name());
-    if (entry.isDirectory()) {
-      Serial.println("/");
-      printDirectory(entry, numTabs + 1);
-    } else {
-      // files have sizes, directories do not
-      Serial.println("\t\t");
-    }
-    entry.close();
-  }
-}
-
-
-//
-// HELPER FUNCTIONS
-//
-void getTrackFilepath(int trackNumber) {
-  // Use global variable selected_session
-  // session/track.raw
-  String fileString = "Sessions/";
-  fileString += selected_session;
-  fileString += "/";
-  fileString += trackNumber;
-  fileString += ".wav";
-  char filename[50];
-  fileString.toCharArray(filename, 50);
-  Serial.println(filename);
-}
-
-bool fileExists(char dir[]) {
-  if (SD.exists(dir)) {
-    return 1;
-  }
-  else {
-    return 0;
-  }
-}
-
-void deleteAll() {
-  int numSessions = fileSystem.getSessionOverview(sessions);
-  for (int i = 0; i < numSessions; i++) {
-    sessions[i]->deleteSession();
-  }
-}
-
-int findIndex(int value) {
-  int index = 0;
-  while (index < num_sessions && sessions[index]->sessionNum != value) ++index;
-  Serial.println("Index: " + String(index));
-  return index;
-}
-
-int compare(const void *a, const void *b) {
-  return (((struct Session *)a)->sessionNum - ((struct Session *)b)->sessionNum);
-}
-
-void updateSessions(int sessionNum) {
-  // Update global data
-  num_sessions = fileSystem.getSessionOverview(sessions);
-  if (sessionNum >= 0) {
-    selected_session = findIndex(sessionNum);
-  } else {
-    if (selected_session > 0) {
-      selected_session--;
-    }
-    if (num_sessions == 0) {
-      selected_session = 0;
-    }
-  }
-  selected_track = 0;
-  if (num_sessions >= 3) {
-    if (selected_session > viewable_sessions[2] || viewable_sessions[2] >= num_sessions) {
-      viewable_sessions[0] = selected_session - 2;
-      viewable_sessions[1] = selected_session - 1;
-      viewable_sessions[2] = selected_session;
-    } else if (selected_session < viewable_sessions[0]) {
-      viewable_sessions[0] = selected_session;
-      viewable_sessions[1] = selected_session + 1;
-      viewable_sessions[2] = selected_session + 2;
-    }
-  }
-}
-
-
-// CORE FUNCTIONS
-int findNewSession() {
-  int newSessionNum = -1;
-  if (num_sessions < MAX_SESSIONS) {
-    if (num_sessions == 0 || (num_sessions > 0 && sessions[0]->sessionNum > 1)) {
-      // new session is before all existing sessions
-      newSessionNum = 1;
-    } else if (num_sessions == 1) {
-      newSessionNum = sessions[0]->sessionNum + 1;
-    } else {
-      for (int i = 0; i < num_sessions; i++) {
-        if (i == num_sessions - 1 || sessions[i]->sessionNum + 1 < sessions[i+1]->sessionNum) {
-          newSessionNum = sessions[i]->sessionNum + 1;
-          break;
-        }
-      }
-    }
-  }
-  Serial.println("New Session: " + String(newSessionNum));
-  return newSessionNum;
-}
-
-void newTrack() {
-
-}
-
-void playSession() {
-
-}
-
-void pauseSession() {
-
-}
-
-void playTrack() {
-
-}
-
-void pauseTrack() {
-
-}
-
-void muteTrack() {
-
-}
-
-void eraseTrack() {
-
-}
-
-void startRecording() {
-  Serial.println("startRecording");
-  if (SD.exists(frec.name())) {
-    // The SD library writes new data to the end of the
-    // file, so to start a new recording, the old file
-    // must be deleted before new data is written.
-    Serial.println("Removing " + String(frec.name()));
-    SD.remove(frec.name());
-  }
-
-  frec = SD.open("DUMMY.RAW", FILE_WRITE);
-  
-  if (frec) {
-    queue1.begin();
-    mode = 1;
-  }
-}
-
-void stopRecording() {
-  Serial.println("stopRecording");
-  queue1.end();
-  if (mode == 1) {
-    while (queue1.available() > 0) {
-      Serial.println("Waiting");
-      frec.write((byte*)queue1.readBuffer(), 256);
-      queue1.freeBuffer();
-    }
-    Serial.println("Done waiting");
-    frec.close();
-  }
-  mode = 0;
-}
-
-
-void continueRecording() {
-  Serial.println("Continue Recording");
-  if (queue1.available() >= 2) {
-    byte buffer[512];
-    // Fetch 2 blocks from the audio library and copy
-    // into a 512 byte buffer.  The Arduino SD library
-    // is most efficient when full 512 byte sector size
-    // writes are used.
-    memcpy(buffer, queue1.readBuffer(), 256);
-    queue1.freeBuffer();
-    memcpy(buffer+256, queue1.readBuffer(), 256);
-    queue1.freeBuffer();
-    // write all 512 bytes to the SD card
-    elapsedMicros usec = 0;
-    frec.write(buffer, 512);
-    // Uncomment these lines to see how long SD writes
-    // are taking.  A pair of audio blocks arrives every
-    // 5802 microseconds, so hopefully most of the writes
-    // take well under 5802 us.  Some will take more, as
-    // the SD library also must write to the FAT tables
-    // and the SD card controller manages media erase and
-    // wear leveling.  The queue1 object can buffer
-    // approximately 301700 us of audio, to allow time
-    // for occasional high SD card latency, as long as
-    // the average write time is under 5802 us.
-    Serial.print("SD write, us=");
-    Serial.println(usec);
-  }
-}
-
-void deleteRecording() {
-  Serial.println("deleteRecording");
-  stopRecording();
-  SD.remove(frec.name());
-}
-
-void enterSetting(int selected_setting) {
-  switch(selected_setting) {
-    case(BEAT_SOUND): {
-      break;
-    }
-    case(DEFAULT_BPM): {
-      menu_id = MENU_SET_DEF_BPM;
-      break;
-    }
-    case(DEFAULT_LOOP_LEN): {
-      menu_id = MENU_SET_DEF_LOOP_LEN;
-      break;
-    }
-    default: {
-      Serial.println("ERROR");
-    }
-  }
-}
-
-
-// Interrupt Service Routines
-void debounce_normal(bool &flag, String message) {
-  unsigned long interrupt_time = millis();
-  if (interrupt_time - last_interrupt_time > INTERRUPT_THRESHOLD)
-  {
-    flag = true;
-    //Serial.println(message);
-  }
-  last_interrupt_time = interrupt_time;
-}
-
-void debounce_toggle(bool& flag, int pin, String message) {
-  unsigned long interrupt_time = millis();
-  if (interrupt_time - last_interrupt_time > INTERRUPT_THRESHOLD) {
-    flag = !flag;
-    if (flag) {
-      digitalWrite(pin, HIGH);
-      //Serial.println(message + "->on");
-    } else {
-      digitalWrite(pin, LOW);
-      //Serial.println(message + "->off");
-    }
-  }
-  last_interrupt_time = interrupt_time;
-}
-
-// Interrupt on A changing state
-void changeVOL_DOWN() {
-  // debounce
-  if ( VOL_rotating ) delay (1);  // wait a little until the bouncing is done
-
-  // Test transition, did things really change?
-  if ( digitalRead(volPin1) != VOL_A_set ) { // debounce once more
-    VOL_A_set = !VOL_A_set;
-
-    // adjust counter + if A leads B
-    if ( VOL_A_set && !VOL_B_set )
-      VOL_encoderPos += 1;
-
-    VOL_rotating = false;  // no more debouncing until loop() hits again
-  }
-}
-
-// Interrupt on B changing state, same as A above
-void changeVOL_UP() {
-  if ( VOL_rotating ) delay (1);
-  if ( digitalRead(volPin2) != VOL_B_set ) {
-    VOL_B_set = !VOL_B_set;
-    //  adjust counter - 1 if B leads A
-    if ( VOL_B_set && !VOL_A_set )
-      VOL_encoderPos -= 1;
-
-    VOL_rotating = false;
-  }
-}
-
-// Interrupt on A changing state
-void changeBPM_DOWN() {
-  // debounce
-  if ( BPM_rotating ) delay (1);  // wait a little until the bouncing is done
-
-  // Test transition, did things really change?
-  if ( digitalRead(BPMPin1) != BPM_A_set ) { // debounce once more
-    BPM_A_set = !BPM_A_set;
-
-    // adjust counter + if A leads B
-    if ( BPM_A_set && !BPM_B_set )
-      BPM_encoderPos += 1;
-
-    BPM_rotating = false;  // no more debouncing until loop() hits again
-  }
-}
-
-// Interrupt on B changing state, same as A above
-void changeBPM_UP() {
-  if ( BPM_rotating ) delay (1);
-  if ( digitalRead(BPMPin2) != BPM_B_set ) {
-    BPM_B_set = !BPM_B_set;
-    //  adjust counter - 1 if B leads A
-    if ( BPM_B_set && !BPM_A_set )
-      BPM_encoderPos -= 1;
-
-    BPM_rotating = false;
-  }
-}
-
-void handleStatus() {
-  if (VOL_encoderPos > 201) VOL_encoderPos = MIN_VOL;
-  if (VOL_encoderPos > MAX_VOL) VOL_encoderPos = MAX_VOL;
-
-  if (BPM_encoderPos < MIN_BPM) BPM_encoderPos = MIN_BPM;
-  if (BPM_encoderPos > MAX_BPM) BPM_encoderPos = MAX_BPM;
-  statusBar.vol = VOL_encoderPos;
-  changeVol();
-
-  if (!recording) {
-    statusBar.bpm = BPM_encoderPos;
-    changeBPM();
-  }
-}
-
-void sendBeat() {
-  // blink LED
-  if (beat_LED_enable) {
-    digitalWrite(beatLED, LOW);
-    beat_LED_enable = false;
-  } else {
-    digitalWrite(beatLED, HIGH);
-    beat_LED_enable = true;
-  }
-  // conditionally send click
-  if (click_enable && beat_LED_enable) {
-    playMem1.play(AudioSampleMetronome);
-  }
-  // conditionally send pulse to haptic
-  if(haptic_enable && beat_LED_enable) {
-    XBee.write(1);
-  } else {//if(haptic_enable) {
-    XBee.write(2);
-  }
-  // increment counter if recording
-  if(recording) {
-    Serial.println("Recording Count : " + String(recording_count));
-    if (recording_count > (lead_in_beats + session_length)) {
-      // stop recording
-      stopRecording();
-      continueRecording_enable = false;
-      Serial.println("Recording Done");
-      playSdRaw1.play("DUMMY.RAW");
-      Serial.println("Playing recording");
-      recording = false;
-      recording_count = 0;
-      digitalWrite(recordingLED, LOW);
-    } else if (recording_count > lead_in_beats) {
-      digitalWrite(recordingLED, HIGH);
-      // start recording
-      if(pendingRecording) {
-        frec = SD.open("DUMMY.RAW", FILE_WRITE);
-        startRecording();
-        pendingRecording = false;
-//        onlyRecording();
-      } else {
-        // continue recording
-        continueRecording_enable = true;
-//        continueRecording();
-      }
-    } else {
-      if (beat_LED_enable) {
-        digitalWrite(recordingLED, HIGH);
-      } else {
-        digitalWrite(recordingLED, LOW);
-      }
-    }
-    if (beat_LED_enable) {
-      recording_count++;
-    }
-  }
-}
-
-void onlyRecording() {
-//  cli();
-  Serial.println("Only recording");
-  int startTimer = millis();
-  int endTimer = startTimer;
-  while ((endTimer - startTimer) < 4000) {
-    continueRecording();
-    endTimer = millis();
-  }
-  Serial.println("Done continuing");
-  stopRecording();
-  playSdRaw1.play("DUMMY.RAW");
-  Serial.println("Playing recording");
-//  sei();
-}
-
-void recordISR() {
-  if(continueRecording_enable) {
-     continueRecording();
-  } 
-}
-
-void changeBPM() {
-  beatTimer.update((0.5 * 60 * pow(10, 6)) / statusBar.bpm);
-}
-void changeVol() {
-  float newVol = float(statusBar.vol) / MAX_VOL;
-  mixer3.gain(0, newVol * 2 / 3); // Track Mixer
-  mixer3.gain(1, newVol); // Metronome Mixer
-}
-void leftButton_ISR() {
-  debounce_normal(left_pressed_flag, "Left button pressed");
-}
-void rightButton_ISR() {
-  debounce_normal(right_pressed_flag, "Right button pressed");
-}
-void selectButton_ISR() {
-  debounce_normal(select_pressed_flag, "Select button pressed");
-}
-void backButton_ISR() {
-  debounce_normal(back_pressed_flag, "Back button pressed");
-}
-void playrecButton_ISR() {
-  debounce_normal(play_rec_pressed_flag, "Play/rec button pressed");
-}
-void clickButton_ISR() {
-  debounce_toggle(click_enable, clickLED, "Click button pressed");
-}
-void hapticButton_ISR() {
-  debounce_toggle(haptic_enable, hapticLED, "Haptic button pressed");
+//  if(recording && (recording_count > lead_in_beats) && !pendingRecording) {
+//    //Serial.println("Continue Recording");
+//    continueRecording();
+//  }
 }
