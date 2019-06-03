@@ -335,8 +335,12 @@ void pauseSession() {
 
 }
 
-void playTrack() {
-
+void playTrack(char* track_name) {
+  Serial.println("track name is: ");
+  for(int i = 0; i < 50; i++) {
+    Serial.print(track_name[i]);
+  }
+  playSdRaw1.play(track_name);
 }
 
 void pauseTrack() {
@@ -351,17 +355,21 @@ void eraseTrack() {
 
 }
 void startRecording() {
-  char* tmp_name = frec.name(); //= SD.open(current_session.createTrack(selected_track, FILE_WRITE);
+//  char* tmp_name = frec.name(); //= SD.open(current_session.createTrack(selected_track, FILE_WRITE);
   Serial.println("startRecording");
-  if (SD.exists(frec.name())) {
+  char* file_path = current_session->trackList[selected_track].trackFilepath;
+  if (SD.exists(file_path)) {
     // The SD library writes new data to the end of the
     // file, so to start a new recording, the old file
     // must be deleted before new data is written.
     Serial.println("Removing " + String(frec.name()));
-    SD.remove(frec.name());
+    SD.remove(file_path);
   }
-
-  frec = SD.open(tmp_name, FILE_WRITE);
+//  Serial.println("Starting to record");
+//  for(int i = 0; i < 50; i++) {
+//    Serial.print(file_path[i]);
+//  }
+  frec = SD.open(file_path, FILE_WRITE);
   
   if (frec) {
     queue1.begin();
@@ -1555,7 +1563,7 @@ void updateDisplay() {
       break;
 
     case (MENU_TRACK_CONFIG):                               // TRACK CONFIG
-      statusBar.play_rec = false;
+//      statusBar.play_rec = false;
       drawTrackOptions(selected_track+1, selected_track_option);
       if (!recording) {             // not recording, so normal behavior
         // MENU NAVIGATION
@@ -1573,31 +1581,35 @@ void updateDisplay() {
         }
         if (select_pressed_flag) {
           // perform action
-          if (selected_track_option == 1) {
+          if (selected_track_option == TRACK_MUTE) {
             // toggle mute
             if (current_session->trackList[selected_track].trackMute) {
               current_session->unmuteTrack(selected_track);
             } else {
-              current_session->muteTrack(selected_track)
+              current_session->muteTrack(selected_track);
             }
           }
           if (selected_track_option == TRACK_DELETE) {
             menu_id = ARE_YOU_SURE;
             from_track = true;
-            // erase track
-            //eraseTrack(selected_track);
-            // go back to track selection
-//            menu_id = MENU_TRACK_SEL;
-            // (check for edge cases about which track to have selected upon return)
           }
           select_pressed_flag = false;
         }
-  
-        // OTHER FUNCTIONALITY
+
+         // OTHER FUNCTIONALITY
         if (play_rec_pressed_flag) {
-          recording = true;
-          pendingRecording = true;
-          // rec/play button pressed - record or play/pause track
+          if(current_session->trackList[selected_track].trackExists) {
+            Serial.println("Track exists, should play");
+            statusBar.play_rec = true;
+            playTrack(current_session->trackList[selected_track].trackFilepath);
+          } else {
+            statusBar.play_rec = false;
+            recording = true;
+            pendingRecording = true;
+          }
+
+          play_rec_pressed_flag = false;
+          
           /*
           if (track_exists(sessions[selected_session], selected_track)) {
             // there's a track there, so play/pause it
@@ -1614,7 +1626,7 @@ void updateDisplay() {
             pendingRecording = true;
           }*/
   
-          play_rec_pressed_flag = false;
+          
         }
     } else {                // recording, so don't accept input
       // cancel if any button is pressed
