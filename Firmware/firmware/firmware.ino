@@ -311,20 +311,16 @@ bool trackMuted(int track) {
 
 int findNewTrack() {
   if (!current_session->trackList[0].trackExists) {
-    return 1;
+    return 0;
   } else if (!current_session->trackList[1].trackExists) {
-    return 2;
+    return 1;
   } else if (!current_session->trackList[2].trackExists) {
-    return 3;
+    return 2;
   } else if (!current_session->trackList[3].trackExists) {
-    return 4;
+    return 3;
   } else {
     return -1;
   }
-}
-
-void newTrack() {
-
 }
 
 void playSession() {
@@ -343,17 +339,6 @@ void playTrack(char* track_name) {
   playSdRaw1.play(track_name);
 }
 
-void pauseTrack() {
-
-}
-
-void muteTrack() {
-
-}
-
-void eraseTrack() {
-
-}
 void startRecording() {
 //  char* tmp_name = frec.name(); //= SD.open(current_session.createTrack(selected_track, FILE_WRITE);
   Serial.println("startRecording");
@@ -1458,9 +1443,24 @@ void updateDisplay() {
       // OTHER FUNCTIONALITY
       if (play_rec_pressed_flag) {
         // quick record pressed - new track in current session
-        current_session = sessions[selected_session];
-        menu_id = MENU_TRACK_CONFIG;
-        selected_track_option = TRACK_MUTE;
+        if (findNewTrack() != -1) {
+          statusBar.bpm = sessions[selected_session]->sessionBPM;
+          changeBPM();
+          session_length = sessions[selected_session]->sessionLength;
+          current_session = sessions[selected_session];
+          selected_track = findNewTrack();
+          menu_id = MENU_TRACK_CONFIG;
+          selected_track_option = TRACK_MUTE;
+          recording = true;
+          pendingRecording = true;
+        } else {
+          menu_id = MENU_TRACK_SEL;
+          statusBar.bpm = sessions[selected_session]->sessionBPM;
+          changeBPM();
+          session_length = sessions[selected_session]->sessionLength;
+          current_session = sessions[selected_session];
+          selected_track = 0;
+        }
         play_rec_pressed_flag = false;
       }
       break;
@@ -1521,7 +1521,11 @@ void updateDisplay() {
       break;
 
     case (MENU_TRACK_SEL):                               // TRACK SELECT
-      statusBar.play_rec = true;
+      if (noTracksExist()) {
+        statusBar.play_rec = false;
+      } else {
+        statusBar.play_rec = true;
+      }
       drawTrackSelect(selected_track);
       // MENU NAVIGATION
       if (right_pressed_flag) {
@@ -1551,6 +1555,12 @@ void updateDisplay() {
 
       // OTHER FUNCTIONALITY
       if (play_rec_pressed_flag) {
+        if (noTracksExist()) {
+          menu_id = MENU_TRACK_CONFIG;
+          selected_track_option = TRACK_MUTE;
+          recording = true;
+          pendingRecording = true;
+        }
         // play button pressed - play/pause session
         if (!playing) {
           playSession();
@@ -1562,7 +1572,11 @@ void updateDisplay() {
       break;
 
     case (MENU_TRACK_CONFIG):                               // TRACK CONFIG
-//      statusBar.play_rec = false;
+      if (trackExists(selected_track)) {
+        statusBar.play_rec = true;
+      } else {
+        statusBar.play_rec = false;
+      }
       drawTrackOptions(selected_track+1, selected_track_option);
       if (!recording) {             // not recording, so normal behavior
         // MENU NAVIGATION
@@ -1624,38 +1638,41 @@ void updateDisplay() {
             recording = true;
             pendingRecording = true;
           }*/
-  
-          
         }
     } else {                // recording, so don't accept input
       // cancel if any button is pressed
       // stop recording, turn off LED, delete newly created track
       if (right_pressed_flag) {
           recording = false;
+          pendingRecording = false;
           recording_count = 0;
           digitalWrite(recordingLED, LOW);
           right_pressed_flag = false;
         }
         if (left_pressed_flag) {
           recording = false;
+          pendingRecording = false;
           recording_count = 0;
           digitalWrite(recordingLED, LOW);
           left_pressed_flag = false;
         }
         if (back_pressed_flag) {
           recording = false;
+          pendingRecording = false;
           recording_count = 0;
           digitalWrite(recordingLED, LOW);
           back_pressed_flag = false;
         }
         if (select_pressed_flag) {
           recording = false;
+          pendingRecording = false;
           recording_count = 0;
           digitalWrite(recordingLED, LOW);
           select_pressed_flag = false;
         }
         if (play_rec_pressed_flag) {
           recording = false;
+          pendingRecording = false;
           recording_count = 0;
           digitalWrite(recordingLED, LOW);
           play_rec_pressed_flag = false;
