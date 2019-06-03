@@ -501,7 +501,7 @@ void sendBeat() {
       stopRecording();
       continueRecording_enable = false;
       Serial.println("Recording Done");
-      playSdRaw1.play(frec.name());
+      playSdRaw1.play(current_session->trackList[selected_track].trackFilepath);
       Serial.println("Playing recording");
       recording = false;
       recording_count = 0;
@@ -1117,12 +1117,12 @@ void drawTrackOptions(uint8_t track_no, bool highlight) {
     draw_level("Track " + String(track_no) + " Options");
     if (current_session->trackList[selected_track].trackMute) {
       centerText("MUTED in session", 25);
-      boxed_text("Unmute", 17, display.height() - 10, !highlight);
+      boxed_text("Unmute", 17, display.height() - 12, !highlight);
     } else {
       centerText("NOT MUTED in session", 25);
-      boxed_text("Mute", 25, display.height() - 10, !highlight);
+      boxed_text("Mute", 25, display.height() - 12, !highlight);
     }
-    boxed_text("Delete", posn_x, display.height() - 10, highlight);
+    boxed_text("Delete", 67, display.height() - 12, highlight);
   }
   //String track = "T" + String(track_no);
   //boxed_text(track, display.width() / 2 - 10, display.height() - 25, false);
