@@ -320,6 +320,7 @@ void eraseTrack() {
 
 }
 void startRecording() {
+  char* tmp_name = frec.name(); //= SD.open(current_session.createTrack(selected_track, FILE_WRITE);
   Serial.println("startRecording");
   if (SD.exists(frec.name())) {
     // The SD library writes new data to the end of the
@@ -329,7 +330,7 @@ void startRecording() {
     SD.remove(frec.name());
   }
 
-  frec = SD.open("DUMMY.RAW", FILE_WRITE);
+  frec = SD.open(tmp_name, FILE_WRITE);
   
   if (frec) {
     queue1.begin();
@@ -470,7 +471,7 @@ void sendBeat() {
       digitalWrite(recordingLED, HIGH);
       // start recording
       if(pendingRecording) {
-        frec = SD.open("DUMMY.RAW", FILE_WRITE);
+        frec = current_session->createTrack(selected_track);
         startRecording();
         pendingRecording = false;
 //        onlyRecording();
