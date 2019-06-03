@@ -226,6 +226,8 @@ int selected_track_option = 0;
 bool recording;
 bool playing;
 bool pendingRecording = false;
+bool from_session = false;
+bool from_track = false;
 
 int recording_count = 0;
 
@@ -349,6 +351,7 @@ void eraseTrack() {
 
 }
 void startRecording() {
+  char* tmp_name = frec.name(); //= SD.open(current_session.createTrack(selected_track, FILE_WRITE);
   Serial.println("startRecording");
   if (SD.exists(frec.name())) {
     // The SD library writes new data to the end of the
@@ -358,7 +361,7 @@ void startRecording() {
     SD.remove(frec.name());
   }
 
-  frec = SD.open("DUMMY.RAW", FILE_WRITE);
+  frec = SD.open(tmp_name, FILE_WRITE);
   
   if (frec) {
     queue1.begin();
@@ -490,7 +493,7 @@ void sendBeat() {
       stopRecording();
       continueRecording_enable = false;
       Serial.println("Recording Done");
-      playSdRaw1.play("DUMMY.RAW");
+      playSdRaw1.play(frec.name());
       Serial.println("Playing recording");
       recording = false;
       recording_count = 0;
@@ -499,7 +502,7 @@ void sendBeat() {
       digitalWrite(recordingLED, HIGH);
       // start recording
       if(pendingRecording) {
-        frec = SD.open("DUMMY.RAW", FILE_WRITE);
+        frec = current_session->createTrack(selected_track);
         startRecording();
         pendingRecording = false;
 //        onlyRecording();
@@ -734,7 +737,7 @@ Session::Session(int num, int bpm, int len) {
       strcat(tmpFilepath, itoa(i, buff2, 4));
       strcat(tmpFilepath, ".raw");
       strcpy(trackList[i].trackFilepath, tmpFilepath);
-      trackList[i].trackMute = 1;
+      trackList[i].trackMute = 0;
     } 
   if (SD.exists(_sessionFilepath)) {
     Serial.printf("Getting directory %s\n", _sessionFilepath);
@@ -1440,6 +1443,7 @@ void updateDisplay() {
         }
         if (selected_session_config_option == SESSION_DELETE) {
           menu_id = ARE_YOU_SURE;
+          from_session = true;
         }
         select_pressed_flag = false;
       }
@@ -1458,23 +1462,46 @@ void updateDisplay() {
       statusBar.play_rec = false;
       areYouSure(are_you_sure);
       if (select_pressed_flag && !are_you_sure) {
-        menu_id = MENU_SESSION_SEL;
+        if(from_session) {
+          menu_id = MENU_SESSION_SEL;
+          from_session = false;
+        } else if(from_track) {
+          menu_id = MENU_TRACK_SEL;    
+        }
         select_pressed_flag = false;
+        
       }
       if (select_pressed_flag && are_you_sure) {
-        menu_id = MENU_SESSION_SEL;
-        Serial.println("Current session number: " + String(current_session->sessionNum));
-        Serial.println("Current session BPM: " + String(current_session->sessionBPM));
-        Serial.println("Current session length: " + String(current_session->sessionLength));
-        current_session->deleteSession();
-        updateSessions(-1);
-        select_pressed_flag = false;
-        are_you_sure = false;
+        if(from_session) {
+          menu_id = MENU_SESSION_SEL;
+          Serial.println("Current session number: " + String(current_session->sessionNum));
+          Serial.println("Current session BPM: " + String(current_session->sessionBPM));
+          Serial.println("Current session length: " + String(current_session->sessionLength));
+          current_session->deleteSession();
+          updateSessions(-1);
+          select_pressed_flag = false;
+          are_you_sure = false;
+          from_session = false;
+        } else if(from_track) {
+          menu_id = MENU_TRACK_SEL;
+          current_session->deleteTrack(selected_track);
+          select_pressed_flag = false;
+          from_track = false;
+          are_you_sure = false;
+        }
       }
       
       if (back_pressed_flag) {
-        menu_id = MENU_SESSION_SEL;
-        back_pressed_flag = false;
+        if(from_session) {
+          menu_id = MENU_SESSION_SEL;
+          back_pressed_flag = false;
+          from_session = false;
+        } else if(from_track) {
+          menu_id = MENU_TRACK_SEL;
+          back_pressed_flag = false;
+          from_track = false;
+        }
+        
       }
       if (left_pressed_flag) {
         are_you_sure = true;
@@ -1554,11 +1581,13 @@ void updateDisplay() {
               current_session->muteTrack(selected_track)
             }
           }
-          if (selected_track_option == 2) {
+          if (selected_track_option == TRACK_DELETE) {
+            menu_id = ARE_YOU_SURE;
+            from_track = true;
             // erase track
             //eraseTrack(selected_track);
             // go back to track selection
-            menu_id = MENU_TRACK_SEL;
+//            menu_id = MENU_TRACK_SEL;
             // (check for edge cases about which track to have selected upon return)
           }
           select_pressed_flag = false;
@@ -1701,7 +1730,7 @@ void setup() {
 
   XBee.begin(115200);
 
-  deleteAll(); // deletes all sessions on the card (for testing purposes)
+//  deleteAll(); // deletes all sessions on the card (for testing purposes)
   
   // get session information from SD card
   num_sessions = fileSystem.getSessionOverview(sessions); // populates list of sessions, returns the number of sessions
