@@ -1548,7 +1548,11 @@ void updateDisplay() {
           // perform action
           if (selected_track_option == 1) {
             // toggle mute
-            current_session->trackList[selected_track].trackMute = !current_session->trackList[selected_track].trackMute;
+            if (current_session->trackList[selected_track].trackMute) {
+              current_session->unmuteTrack(selected_track);
+            } else {
+              current_session->muteTrack(selected_track)
+            }
           }
           if (selected_track_option == 2) {
             // erase track
