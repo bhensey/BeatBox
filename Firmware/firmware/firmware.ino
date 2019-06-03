@@ -292,6 +292,35 @@ int findNewSession() {
   return newSessionNum;
 }
 
+bool noTracksExist() {
+  return (!current_session->trackList[0].trackExists) &&
+         (!current_session->trackList[1].trackExists) &&
+         (!current_session->trackList[2].trackExists) &&
+         (!current_session->trackList[3].trackExists);
+}
+
+bool trackExists(int track) {
+  return (current_session->trackList[track].trackExists);
+}
+
+bool trackMuted(int track) {
+  return (current_session->trackList[track].trackMute);
+}
+
+int findNewTrack() {
+  if (!current_session->trackList[0].trackExists) {
+    return 1;
+  } else if (!current_session->trackList[1].trackExists) {
+    return 2;
+  } else if (!current_session->trackList[2].trackExists) {
+    return 3;
+  } else if (!current_session->trackList[3].trackExists) {
+    return 4;
+  } else {
+    return -1;
+  }
+}
+
 void newTrack() {
 
 }
@@ -1010,15 +1039,15 @@ void drawSessionConfig(int session_number, bool highlight) {
   display.display();
 }
 
-void drawTrackSelect(uint8_t existing_tracks, uint8_t muted_tracks, uint8_t selected) {
+void drawTrackSelect(uint8_t selected) {
   uint8_t highlight = 0x8 >> selected;
   draw_level("Session " + String(current_session->sessionNum));
   display.setCursor(0, 20);
   display.println("Track Select");
   String track_dne = " + ";
-  if (IS_SEL_LEFT(existing_tracks)) {
+  if (trackExists(0)) {
     boxed_text("T1", 10, display.height() - 20, IS_SEL_LEFT(highlight));
-    if (IS_SEL_LEFT(muted_tracks)) {
+    if (trackMuted(0)) {
       // display track 1 mute indication
       display.setCursor(13, display.height() - 8);
       display.println("M");
@@ -1027,9 +1056,9 @@ void drawTrackSelect(uint8_t existing_tracks, uint8_t muted_tracks, uint8_t sele
     boxed_text(track_dne, 10, display.height() - 20, IS_SEL_LEFT(highlight));
   }
 
-  if (IS_SEL_CENTER(existing_tracks)) {
+  if (trackExists(1)) {
     boxed_text("T2", 40, display.height() - 20, IS_SEL_CENTER(highlight));
-    if (IS_SEL_CENTER(muted_tracks)) {
+    if (trackMuted(1)) {
       // display track 2 mute indication
       display.setCursor(43, display.height() - 8);
       display.println("M");
@@ -1038,9 +1067,9 @@ void drawTrackSelect(uint8_t existing_tracks, uint8_t muted_tracks, uint8_t sele
     boxed_text(track_dne, 40, display.height() - 20, IS_SEL_CENTER(highlight));
   }
 
-  if (IS_SEL_RIGHT(existing_tracks)) {
+  if (trackExists(2)) {
     boxed_text("T3", 70, display.height() - 20, IS_SEL_RIGHT(highlight));
-    if (IS_SEL_RIGHT(muted_tracks)) {
+    if (trackMuted(2)) {
       // display track 3 mute indication
       display.setCursor(73, display.height() - 8);
       display.println("M");
@@ -1049,9 +1078,9 @@ void drawTrackSelect(uint8_t existing_tracks, uint8_t muted_tracks, uint8_t sele
     boxed_text(track_dne, 70, display.height() - 20, IS_SEL_RIGHT(highlight));
   }
 
-  if (IS_SEL_FAR_RIGHT(existing_tracks)) {
+  if (trackExists(3)) {
     boxed_text("T4", 100, display.height() - 20, IS_SEL_FAR_RIGHT(highlight));
-    if (IS_SEL_FAR_RIGHT(muted_tracks)) {
+    if (trackMuted(3)) {
       // display track 4 mute indication
       display.setCursor(103, display.height() - 8);
       display.println("M");
@@ -1455,7 +1484,7 @@ void updateDisplay() {
 
     case (MENU_TRACK_SEL):                               // TRACK SELECT
       statusBar.play_rec = true;
-      drawTrackSelect(15, 15, selected_track);
+      drawTrackSelect(selected_track);
       // MENU NAVIGATION
       if (right_pressed_flag) {
         if (selected_track < 3) {
