@@ -328,11 +328,36 @@ void newTrack() {
 }
 
 void playSession() {
+  if(current_session->trackList[0].trackExists) {
+    playSdRaw1.play(current_session->trackList[0].trackFilepath);
+  }
+  if(current_session->trackList[1].trackExists) {
+    playSdRaw2.play(current_session->trackList[1].trackFilepath);
+  }
+  if(current_session->trackList[2].trackExists) {
+    playSdRaw3.play(current_session->trackList[2].trackFilepath);
+  }
+  if(current_session->trackList[3].trackExists) {
+    playSdRaw4.play(current_session->trackList[3].trackFilepath);
+  }
+
+  for(int i = 0; i < 4; i++) {
+    if(current_session->trackList[i].trackMute) {
+      mixer1.gain(i, 0.0);
+    } else {
+      mixer1.gain(i, 0.5);
+    }
+  }
+  playing = true;
 
 }
 
 void pauseSession() {
-
+  playSdRaw1.stop();
+  playSdRaw2.stop();
+  playSdRaw3.stop();
+  playSdRaw4.stop();
+  playing = false;
 }
 
 void playTrack(char* track_name) {
@@ -345,6 +370,7 @@ void playTrack(char* track_name) {
 
 void pauseTrack() {
 
+  
 }
 
 void muteTrack() {
@@ -362,7 +388,7 @@ void startRecording() {
     // The SD library writes new data to the end of the
     // file, so to start a new recording, the old file
     // must be deleted before new data is written.
-    Serial.println("Removing " + String(frec.name()));
+//    Serial.println("Removing " + String(frec.name()));
     SD.remove(file_path);
   }
 //  Serial.println("Starting to record");
