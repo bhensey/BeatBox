@@ -1126,6 +1126,7 @@ void updateDisplay() {
   drawStatusBar();
   switch (menu_id) {
     case (MENU_HOME):                               // HOME
+      statusBar.play_rec = false;
       drawHome(selected_home_option);
       // MENU NAVIGATION
       if (right_pressed_flag) {
@@ -1172,6 +1173,7 @@ void updateDisplay() {
       break;
 
     case (MENU_SET_LOOP_LENGTH):
+      statusBar.play_rec = false;
       drawSelectOption(String(session_length), "Loop Length (Beats)");
        if (select_pressed_flag) {
         int newSessionNum = findNewSession();
@@ -1204,6 +1206,7 @@ void updateDisplay() {
       break;
 
     case (MENU_SET_DEF_BPM):
+      statusBar.play_rec = false;
       drawSelectOption(String(statusBar.bpm), "Set Default BPM");
       if (select_pressed_flag) {
         menu_id = MENU_SETTINGS;
@@ -1224,6 +1227,7 @@ void updateDisplay() {
       break;
 
     case (MENU_SET_DEF_LOOP_LEN):
+      statusBar.play_rec = false;
       drawSelectOption(String(session_length), "Default Loop Length");
       if (select_pressed_flag) {
         menu_id = MENU_SETTINGS;
@@ -1246,6 +1250,7 @@ void updateDisplay() {
       break;
 
     case (ERROR_MENU):
+      statusBar.play_rec = false;
       drawStorageLimit("Session Limit Reached!\nDelete or export content!");
       if(left_pressed_flag) {
         menu_id = MENU_HOME;
@@ -1266,6 +1271,7 @@ void updateDisplay() {
       break;
 
     case (MENU_SETTINGS):                               // SETTINGS
+      statusBar.play_rec = false;
       drawSettings(selected_setting);
       // MENU NAVIGATION
       if (right_pressed_flag) {
@@ -1308,6 +1314,7 @@ void updateDisplay() {
       break;
 
     case (MENU_SESSION_SEL):                               // SESSION SELECT
+      statusBar.play_rec = false;
       drawSessionSelect(selected_session);
       // MENU NAVIGATION
       if (right_pressed_flag) {
@@ -1368,6 +1375,7 @@ void updateDisplay() {
       break;
 
     case (MENU_SESSION_CONFIG):                               // SESSION CONFIG
+      statusBar.play_rec = false;
       drawSessionConfig(sessions[selected_session]->sessionNum, selected_session_config_option);
       // MENU NAVIGATION
       if (right_pressed_flag) {
@@ -1413,6 +1421,7 @@ void updateDisplay() {
       break;
 
     case (ARE_YOU_SURE):
+      statusBar.play_rec = false;
       areYouSure(are_you_sure);
       if (select_pressed_flag && !are_you_sure) {
         menu_id = MENU_SESSION_SEL;
@@ -1444,6 +1453,7 @@ void updateDisplay() {
       break;
 
     case (MENU_TRACK_SEL):                               // TRACK SELECT
+      statusBar.play_rec = true;
       drawTrackSelect(15, 15, selected_track);
       // MENU NAVIGATION
       if (right_pressed_flag) {
@@ -1484,6 +1494,7 @@ void updateDisplay() {
       break;
 
     case (MENU_TRACK_CONFIG):                               // TRACK CONFIG
+      statusBar.play_rec = false;
       drawTrackOptions(selected_track+1, selected_track_option);
       if (!recording) {             // not recording, so normal behavior
         // MENU NAVIGATION
