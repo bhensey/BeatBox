@@ -1099,20 +1099,25 @@ void drawTrackOptions(uint8_t track_no, bool highlight) {
     } else {
       centerText("Counting in...", 20);
     }
+  } else if (playing) {
+    centerText("Playing", 18);
   } else {
     draw_level("Track Options");
+    if (current_session->trackList[selected_track].trackMute) {
+      centerText("Mute: ON", 25);
+      boxed_text("Unmute", 17, display.height() - 10, !highlight);
+    } else {
+      centerText("Mute: OFF", 25);
+      boxed_text("Mute", 25, display.height() - 10, !highlight);
+    }
   }
   String track = "T" + String(track_no);
   boxed_text(track, display.width() / 2 - 10, display.height() - 25, false);
-  boxed_text("Mute", 25, display.height() - 10, !highlight);
   int posn_x = 67;
   if (track.length() > 2) posn_x = 74;
   boxed_text("Delete", posn_x, display.height() - 10, highlight);
   // if recording, display "recording"
   // if playing, display "playing"
-  if (playing) {
-    centerText("Playing", 18);
-  }
   display.display();
 }
 
@@ -1542,8 +1547,8 @@ void updateDisplay() {
         if (select_pressed_flag) {
           // perform action
           if (selected_track_option == 1) {
-            // mute track
-            //muteTrack(selected_track);
+            // toggle mute
+            current_session->trackList[selected_track].trackMute = !current_session->trackList[selected_track].trackMute;
           }
           if (selected_track_option == 2) {
             // erase track
