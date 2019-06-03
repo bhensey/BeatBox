@@ -1111,24 +1111,23 @@ void drawTrackOptions(uint8_t track_no, bool highlight) {
       centerText("Counting in...", 20);
     }
   } else if (playing) {
-    centerText("Playing", 18);
+    centerText("Playing", 15);
+    centerText("Any button to stop", 25);
   } else {
-    draw_level("Track Options");
+    draw_level("Track " + String(track_no) + " Options");
     if (current_session->trackList[selected_track].trackMute) {
-      centerText("Mute: ON", 25);
+      centerText("MUTED in session", 25);
       boxed_text("Unmute", 17, display.height() - 10, !highlight);
     } else {
-      centerText("Mute: OFF", 25);
+      centerText("NOT MUTED in session", 25);
       boxed_text("Mute", 25, display.height() - 10, !highlight);
     }
+    boxed_text("Delete", posn_x, display.height() - 10, highlight);
   }
-  String track = "T" + String(track_no);
-  boxed_text(track, display.width() / 2 - 10, display.height() - 25, false);
-  int posn_x = 67;
-  if (track.length() > 2) posn_x = 74;
-  boxed_text("Delete", posn_x, display.height() - 10, highlight);
-  // if recording, display "recording"
-  // if playing, display "playing"
+  //String track = "T" + String(track_no);
+  //boxed_text(track, display.width() / 2 - 10, display.height() - 25, false);
+  //int posn_x = 67;
+  //if (track.length() > 2) posn_x = 74;
   display.display();
 }
 
