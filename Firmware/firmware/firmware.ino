@@ -194,6 +194,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 IntervalTimer beatTimer;
 IntervalTimer recordTimer;
+IntervalTimer loopTimer;
 
 Encoder BPM_Enc(BPMPin1, BPMPin2);
 Encoder vol_Enc(volPin1, volPin2);
@@ -205,6 +206,9 @@ File frec;
 uint8_t bpm = 85;
 uint8_t vol = 50;
 struct globalConfig statusBar = {bpm, vol, false};
+
+uint64_t session_duration = 0;
+uint64_t start_time = 0;
 
 int menu_id = 0; // current state of the menu
 
@@ -324,11 +328,41 @@ int findNewTrack() {
 }
 
 void playSession() {
+  if(current_session->trackList[0].trackExists) {
+    playSdRaw1.play(current_session->trackList[0].trackFilepath);
+    session_duration = playSdRaw1.lengthMillis();
+  }
+  if(current_session->trackList[1].trackExists) {
+    playSdRaw2.play(current_session->trackList[1].trackFilepath);
+    session_duration = playSdRaw2.lengthMillis();
+  }
+  if(current_session->trackList[2].trackExists) {
+    playSdRaw3.play(current_session->trackList[2].trackFilepath);
+    session_duration = playSdRaw3.lengthMillis();
+  }
+  if(current_session->trackList[3].trackExists) {
+    playSdRaw4.play(current_session->trackList[3].trackFilepath);
+    session_duration = playSdRaw4.lengthMillis();
+  }
+
+  start_time = millis();
+  for(int i = 0; i < 4; i++) {
+    if(current_session->trackList[i].trackMute) {
+      mixer1.gain(i, 0.0);
+    } else {
+      mixer1.gain(i, 0.5);
+    }
+  }
+  playing = true;
 
 }
 
 void pauseSession() {
-
+  playSdRaw1.stop();
+  playSdRaw2.stop();
+  playSdRaw3.stop();
+  playSdRaw4.stop();
+  playing = false;
 }
 
 void playTrack(char* track_name) {
@@ -347,7 +381,7 @@ void startRecording() {
     // The SD library writes new data to the end of the
     // file, so to start a new recording, the old file
     // must be deleted before new data is written.
-    Serial.println("Removing " + String(frec.name()));
+//    Serial.println("Removing " + String(frec.name()));
     SD.remove(file_path);
   }
 //  Serial.println("Starting to record");
@@ -1682,6 +1716,18 @@ void updateDisplay() {
   }
 }
 
+void loopISR() {
+  if(playing && millis() > (start_time + session_duration)) {
+//     Serial.println("Length: " + String(playSdRaw1.lengthMillis()));
+//     Serial.println("Current: " + String(playSdRaw1.positionMillis()));
+//    if(playSdRaw1.lengthMillis() - playSdRaw1.positionMillis() < 10) {
+//      Serial.println("Calling play session");
+      playSession();
+//    }
+  }
+  
+}
+
 
 // SETUP AND LOOP FUNCTIONS
 void setup() {
@@ -1732,6 +1778,7 @@ void setup() {
   // initialize beat timer
   beatTimer.begin(sendBeat, 0.5 * (60 * pow(10, 6)) / statusBar.bpm);
   recordTimer.begin(recordISR, 5000);
+  loopTimer.begin(loopISR, 10000);
 
   // initialize ISRs
   attachInterrupt(digitalPinToInterrupt(leftButton), leftButton_ISR, FALLING);
