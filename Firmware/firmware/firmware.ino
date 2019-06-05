@@ -330,30 +330,27 @@ int findNewTrack() {
 
 void playSession() {
   Serial.println("Playing session");
-  if(current_session->trackList[0].trackExists) {
+  if(current_session->trackList[0].trackExists && !current_session->trackList[0].trackMute) {
     playSdRaw1.play(current_session->trackList[0].trackFilepath);
+    Serial.println("Playing track 0");
     session_duration = playSdRaw1.lengthMillis();
   }
-  if(current_session->trackList[1].trackExists) {
+  if(current_session->trackList[1].trackExists && !current_session->trackList[1].trackMute) {
     playSdRaw2.play(current_session->trackList[1].trackFilepath);
+    Serial.println("Playing track 1");
     session_duration = playSdRaw2.lengthMillis();
   }
-  if(current_session->trackList[2].trackExists) {
+  if(current_session->trackList[2].trackExists && !current_session->trackList[2].trackMute) {
     playSdRaw3.play(current_session->trackList[2].trackFilepath);
+    Serial.println("Playing track 2");
     session_duration = playSdRaw3.lengthMillis();
   }
-  if(current_session->trackList[3].trackExists) {
+  if(current_session->trackList[3].trackExists && !current_session->trackList[3].trackMute) {
     playSdRaw4.play(current_session->trackList[3].trackFilepath);
+    Serial.println("Playing track 3");
     session_duration = playSdRaw4.lengthMillis();
   }
 
-  for(int i = 0; i < 4; i++) {
-    if(current_session->trackList[i].trackMute) {
-      mixer1.gain(i, 0.0);
-    } else {
-      mixer1.gain(i, 0.5);
-    }
-  }
   session_playing = true;
   start_time = millis();
 }
@@ -945,6 +942,7 @@ int compare(const void *a, const void *b) {
 void updateSessions(int sessionNum) {
   // Update global data
   num_sessions = fileSystem.getSessionOverview(sessions);
+  Serial.println("Update sessions: num session = " + String(num_sessions));
   if (sessionNum >= 0) {
     selected_session = findIndex(sessionNum);
   } else {
@@ -1538,17 +1536,20 @@ void updateDisplay() {
           menu_id = MENU_SESSION_SEL;
           from_session = false;
         } else if(from_track) {
-          menu_id = MENU_TRACK_SEL;    
+          menu_id = MENU_TRACK_SEL; 
+          from_track = false;   
         }
         select_pressed_flag = false;
         
       }
-      if (select_pressed_flag && are_you_sure) {
+      if (select_pressed_flag && are_you_sure) { 
         if(from_session) {
           menu_id = MENU_SESSION_SEL;
+          Serial.println("Session deleted");
           Serial.println("Current session number: " + String(current_session->sessionNum));
           Serial.println("Current session BPM: " + String(current_session->sessionBPM));
           Serial.println("Current session length: " + String(current_session->sessionLength));
+          current_session = sessions[selected_session];
           current_session->deleteSession();
           updateSessions(-1);
           select_pressed_flag = false;
@@ -1746,7 +1747,7 @@ void updateDisplay() {
 }
 
 void loopISR() {
-  if(session_playing && millis() > (start_time + session_duration)) {
+  if(session_playing && millis() > (start_time + session_duration + 37)) {
     stopSession();
     playSession();
   }
