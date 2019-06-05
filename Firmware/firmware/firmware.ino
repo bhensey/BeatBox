@@ -172,7 +172,7 @@ struct globalConfig {
 // Global Variables
 const int leftButton = 16;      // the number of the left button pin
 const int rightButton = 15;     // the number of the right button pin
-const int selectButton = 14;    // the number of the select button pin
+const int selectButton = 17;    // the number of the select button pin
 const int backButton = 35;      // the number of the back button pin
 const int clickButton = 37;     // the number of the click button pin
 const int hapticButton = 36;    // the number of the haptic button pin
@@ -220,7 +220,7 @@ Session* current_session;
 
 // menu selection global variables
 int selected_home_option = 0;
-int selected_setting = 0;
+int selected_setting = 1;
 int selected_session = 0;
 int viewable_sessions[] = {0, 1, 2};
 int selected_session_config_option = 0;
@@ -466,9 +466,9 @@ void cancelRecording() {
 
 void enterSetting(int selected_setting) {
   switch(selected_setting) {
-    case(BEAT_SOUND): {
-      break;
-    }
+//    case(BEAT_SOUND): {
+//      break;
+//    }
     case(DEFAULT_BPM): {
       menu_id = MENU_SET_DEF_BPM;
       break;
@@ -1037,9 +1037,9 @@ void centerText(String text, int y_pos) {
 void drawSettings(uint8_t selected) {
   uint8_t highlight = 0x8 >> selected;
   draw_level("Preferences");
-  boxed_text("Sound", 12, display.height() / 2 + 10, IS_SEL_LEFT(highlight));
-  boxed_text("BPM", 57, display.height() / 2 + 10, IS_SEL_CENTER(highlight));
-  boxed_text("Loop", 91, display.height() / 2 + 10, IS_SEL_RIGHT(highlight));
+//  boxed_text("Sound", 12, display.height() / 2 + 10, IS_SEL_LEFT(highlight));
+  boxed_text("BPM", 20, display.height() / 2 + 10, IS_SEL_CENTER(highlight));
+  boxed_text("Loop", 80, display.height() / 2 + 10, IS_SEL_RIGHT(highlight));
   display.display();
 }
 
