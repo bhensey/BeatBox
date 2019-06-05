@@ -59,7 +59,7 @@ int mode = 0;
 #define MENU_TRACK_CONFIG           6
 #define MENU_SETTINGS               7
 #define ARE_YOU_SURE                8
-#define MENU_SET_LOOP_LENGTH  9
+#define MENU_SET_LOOP_LENGTH        9
 #define ERROR_MENU                  10
 #define MENU_SET_DEF_BPM            11
 #define MENU_SET_DEF_LOOP_LEN       12
@@ -227,14 +227,17 @@ int selected_session_config_option = 0;
 int selected_track = 0;
 int selected_track_option = 0;
 
-bool recording;
-bool session_playing;
-bool track_playing;
+bool recording = false;
+bool pendingSessionPlay = false;
+bool session_playing = false;
+bool pendingTrackPlay;
+bool track_playing = false;
 bool pendingRecording = false;
 bool from_session = false;
 bool from_track = false;
 
 int recording_count = 0;
+int play_count = 0;
 
 bool beat_LED_enable = false;
 bool click_enable = false;
@@ -373,7 +376,6 @@ void playTrack() {
   Serial.println();
   playSdRaw1.play(track_name);
   mixer1.gain(0, 0.8);
-  track_playing = true;
   session_duration = playSdRaw1.lengthMillis();
   start_time = millis();
 }
@@ -381,7 +383,6 @@ void playTrack() {
 void stopTrack() {
   Serial.println("Stopping track");
   playSdRaw1.stop();
-  track_playing = false;
 }
 
 void startRecording() {
@@ -512,11 +513,9 @@ void debounce_toggle(bool& flag, int pin, String message) {
 void sendBeat() {
   // blink LED
   if (beat_LED_enable) {
-    digitalWrite(beatLED, LOW);
-    beat_LED_enable = false;
-  } else {
     digitalWrite(beatLED, HIGH);
-    beat_LED_enable = true;
+  } else {
+    digitalWrite(beatLED, LOW);
   }
   // conditionally send click
   if (click_enable && beat_LED_enable) {
@@ -530,42 +529,58 @@ void sendBeat() {
   }
   // increment counter if recording
   if(recording) {
-//    Serial.println("Recording Count : " + String(recording_count));
-    if (recording_count > (lead_in_beats + session_length)) {
-      // stop recording
-      stopRecording();
-      continueRecording_enable = false;
-      Serial.println("Recording Done");
-      playTrack();
-      Serial.println("Playing recording");
-      track_playing = true;
-      recording = false;
-      recording_count = 0;
-      digitalWrite(recordingLED, LOW);
-    } else if (recording_count > lead_in_beats) {
-      digitalWrite(recordingLED, HIGH);
-      // start recording
-      if(pendingRecording) {
-        frec = current_session->createTrack(selected_track);
-        startRecording();
-        pendingRecording = false;
-//        onlyRecording();
-      } else {
-        // continue recording
-        continueRecording_enable = true;
-//        continueRecording();
-      }
-    } else {
-      if (beat_LED_enable) {
-        digitalWrite(recordingLED, HIGH);
-      } else {
-        digitalWrite(recordingLED, LOW);
-      }
-    }
     if (beat_LED_enable) {
+      //Serial.println("Recording Count : " + String(recording_count));
+      digitalWrite(recordingLED, HIGH);
+      if (recording_count > lead_in_beats + session_length) {
+        // stop recording
+        stopRecording();
+        continueRecording_enable = false;
+        Serial.println("Recording Done");
+        playTrack();
+        Serial.println("Playing recording");
+        track_playing = true;
+        recording = false;
+        recording_count = 0;
+        digitalWrite(recordingLED, LOW);
+      } else if (recording_count >= lead_in_beats) {
+        digitalWrite(recordingLED, HIGH);
+        Serial.println("Recording: " + String(recording_count - lead_in_beats));
+        // start recording
+        if(pendingRecording) {
+          frec = current_session->createTrack(selected_track);
+          startRecording();
+          Serial.println("Recording should be " + String(session_length) + " beats long");
+          pendingRecording = false;
+        } else {
+          // continue recording
+          continueRecording_enable = true;
+        }
+      } else {
+          // counting in
+          Serial.println("Count-in: " + String(lead_in_beats - recording_count));
+      }
       recording_count++;
+    } else if (pendingRecording) {
+      digitalWrite(recordingLED, LOW);
     }
   }
+//  if (track_playing && beat_LED_enable) {
+//    if (play_count >= session_length) {
+//      // loop track
+//      stopTrack();
+//      playTrack();
+//      play_count = 0;
+//    }
+//    if (pendingTrackPlay) {
+//      playTrack();
+//      play_count = 0;
+//      pendingTrackPlay = false;
+//    }
+//    play_count++;
+//  }
+
+  beat_LED_enable = !beat_LED_enable;
 }
 
 void onlyRecording() {
@@ -689,7 +704,7 @@ void handleStatus() {
   statusBar.vol = VOL_encoderPos;
   changeVol();
 
-  if (!recording) {
+  if (!(recording || menu_id == MENU_TRACK_SEL || menu_id == MENU_TRACK_CONFIG || (menu_id == ARE_YOU_SURE && from_track))) {
     statusBar.bpm = BPM_encoderPos;
     changeBPM();
   }
@@ -991,7 +1006,7 @@ void drawStatusBar() {
     display.println("REC");
   } else {
     display.setCursor(97, 2);
-    if (session_playing || track_playing) {
+    if (session_playing || track_playing || recording) {
       display.println("Stop");
     } else {
       display.println("Play");
@@ -1152,10 +1167,16 @@ void drawTrackOptions(uint8_t track_no, bool highlight) {
       centerText("Any button to cancel", 25);
     } else {
       centerText("Counting in...", 20);
+      if (recording_count > 0) {
+        centerText(String(lead_in_beats - recording_count + 1), 35);
+      }
     }
   } else if (track_playing) {
-    centerText("Playing", 15);
+    centerText("Playing track", 15);
     centerText("Any button to stop", 25);
+  } else if (session_playing) {
+    centerText("Playing session", 15);
+    centerText("Press STOP to stop", 25);
   } else {
     draw_level("Track " + String(track_no) + " Options");
     if (!current_session->trackList[selected_track].trackExists) {
@@ -1647,7 +1668,7 @@ void updateDisplay() {
         statusBar.play_rec = false;
       }
       drawTrackOptions(selected_track+1, selected_track_option);
-      if (!recording && !track_playing) {    // not recording or playing, so normal behavior
+      if (!recording && !track_playing && !session_playing) {    // not recording or playing, so normal behavior
         // MENU NAVIGATION
         if (right_pressed_flag) {
           if (current_session->trackList[selected_track].trackExists) {
@@ -1688,7 +1709,8 @@ void updateDisplay() {
         if (play_rec_pressed_flag) {
           if(current_session->trackList[selected_track].trackExists) {
             Serial.println("Track exists, should play");
-            playTrack();
+            pendingTrackPlay = true;
+            track_playing = true;
           } else {
             statusBar.play_rec = false;
             recording = true;
@@ -1723,22 +1745,47 @@ void updateDisplay() {
       // stop playing if any button is pressed
       if (right_pressed_flag) {
           stopTrack();
+          track_playing = false;
           right_pressed_flag = false;
         }
         if (left_pressed_flag) {
           stopTrack();
+          track_playing = false;
           left_pressed_flag = false;
         }
         if (back_pressed_flag) {
           stopTrack();
+          track_playing = false;
           back_pressed_flag = false;
         }
         if (select_pressed_flag) {
           stopTrack();
+          track_playing = false;
           select_pressed_flag = false;
         }
         if (play_rec_pressed_flag) {
           stopTrack();
+          track_playing = false;
+          play_rec_pressed_flag = false;
+        }
+    } else if (session_playing) {
+      // stop playing if play/rec button is pressed
+      if (right_pressed_flag) {
+          right_pressed_flag = false;
+        }
+        if (left_pressed_flag) {
+          left_pressed_flag = false;
+        }
+        if (back_pressed_flag) {
+          menu_id = MENU_TRACK_SEL;
+          back_pressed_flag = false;
+        }
+        if (select_pressed_flag) {
+          select_pressed_flag = false;
+        }
+        if (play_rec_pressed_flag) {
+          stopSession();
+          session_playing = false;
           play_rec_pressed_flag = false;
         }
     }
@@ -1747,7 +1794,7 @@ void updateDisplay() {
 }
 
 void loopISR() {
-  if(session_playing && millis() > (start_time + session_duration + 37)) {
+  if(session_playing && millis() > (start_time + session_duration + 50)) {
     stopSession();
     playSession();
   }
@@ -1755,7 +1802,6 @@ void loopISR() {
     stopTrack();
     playTrack();
   }
-  
 }
 
 
@@ -1808,7 +1854,7 @@ void setup() {
   // initialize beat timer
   beatTimer.begin(sendBeat, 0.5 * (60 * pow(10, 6)) / statusBar.bpm);
   recordTimer.begin(recordISR, 5000);
-  loopTimer.begin(loopISR, 10000);
+  loopTimer.begin(loopISR, 5000);
 
   // initialize ISRs
   attachInterrupt(digitalPinToInterrupt(leftButton), leftButton_ISR, FALLING);
