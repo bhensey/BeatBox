@@ -37,6 +37,7 @@ AudioConnection          patchCord9(mixer3, 0, i2s1, 0);
 AudioControlSGTL5000     sgtl5000_1;     //xy=252,427
 // GUItool: end automatically generated code
 
+
 // Use these with the Teensy Audio Shield
 //#define SDCARD_CS_PIN    10
 //#define SDCARD_MOSI_PIN  7
@@ -331,31 +332,36 @@ int findNewTrack() {
   }
 }
 
+#define MAX(a,b) ((a) > (b) ? a : b)
+#define MIN(a,b) ((a) < (b) ? a : b)
+
 void playSession() {
+  session_duration = 0;
   Serial.println("Playing session");
   if(current_session->trackList[0].trackExists && !current_session->trackList[0].trackMute) {
     playSdRaw1.play(current_session->trackList[0].trackFilepath);
     Serial.println("Playing track 0");
-    session_duration = playSdRaw1.lengthMillis();
+    session_duration = MAX(playSdRaw1.lengthMillis(), session_duration);
   }
   if(current_session->trackList[1].trackExists && !current_session->trackList[1].trackMute) {
     playSdRaw2.play(current_session->trackList[1].trackFilepath);
     Serial.println("Playing track 1");
-    session_duration = playSdRaw2.lengthMillis();
+    session_duration = MAX(playSdRaw2.lengthMillis(), session_duration);
   }
   if(current_session->trackList[2].trackExists && !current_session->trackList[2].trackMute) {
     playSdRaw3.play(current_session->trackList[2].trackFilepath);
     Serial.println("Playing track 2");
-    session_duration = playSdRaw3.lengthMillis();
+    session_duration = MAX(playSdRaw3.lengthMillis(), session_duration);
   }
   if(current_session->trackList[3].trackExists && !current_session->trackList[3].trackMute) {
     playSdRaw4.play(current_session->trackList[3].trackFilepath);
     Serial.println("Playing track 3");
-    session_duration = playSdRaw4.lengthMillis();
+    session_duration = MAX(playSdRaw4.lengthMillis(), session_duration);
   }
 
   session_playing = true;
   start_time = millis();
+  Serial.printf("Session durration is %d\n", session_duration);
 }
 
 void stopSession() {
@@ -375,7 +381,6 @@ void playTrack() {
   }
   Serial.println();
   playSdRaw1.play(track_name);
-  mixer1.gain(0, 0.8);
   session_duration = playSdRaw1.lengthMillis();
   start_time = millis();
 }
@@ -581,22 +586,6 @@ void sendBeat() {
 //  }
 
   beat_LED_enable = !beat_LED_enable;
-}
-
-void onlyRecording() {
-//  cli();
-  Serial.println("Only recording");
-  int startTimer = millis();
-  int endTimer = startTimer;
-  while ((endTimer - startTimer) < 4000) {
-    continueRecording();
-    endTimer = millis();
-  }
-  Serial.println("Done continuing");
-  stopRecording();
-  playSdRaw1.play("DUMMY.RAW");
-  Serial.println("Playing recording");
-//  sei();
 }
 
 void recordISR() {
@@ -1794,12 +1783,12 @@ void updateDisplay() {
 }
 
 void loopISR() {
-  if(session_playing && millis() > (start_time + session_duration + 50)) {
-    stopSession();
+  if(session_playing && millis() > (start_time + session_duration)) {
+    //stopSession();
     playSession();
   }
   if(track_playing && millis() > (start_time + session_duration)) {
-    stopTrack();
+    //stopTrack();
     playTrack();
   }
 }
