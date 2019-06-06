@@ -154,12 +154,16 @@ class Session
 class FileClass
 {
   public:
+  FileClass();
+  void initFileClass();
   int getSessionOverview(Session **sessionArray); // Takes a preallocated empty session array, returns size and populates it
   Session* getSession(int sessionNum); // Takes a session number, returns a session object
-  
-  // Helper functions
-
-  private:
+  void setDefaultBpm(int Bpm);
+  void setDefaultLoopLength(int LoopLength);
+  int defaultBpm;
+  int defaultLoopLength;
+  void updateMetadata();
+  char settingsFilepath[50] = "/settings";
 
 };
 
@@ -276,9 +280,7 @@ uint16_t session_length = 16;
 
 uint16_t lead_in_beats = 4;
 
-File root;
-
-FileClass fileSystem = FileClass();
+FileClass fileSystem;
 
 
 // CORE FUNCTIONS
@@ -706,6 +708,25 @@ void handleStatus() {
 // Define FileClass Methods
 //
 
+FileClass::FileClass() {
+  defaultBpm = 85;
+  defaultLoopLength = 16;
+}
+
+void FileClass::initFileClass() {
+  if (SD.exists(settingsFilepath)) {
+    Serial.print("Initializing FileClass with default settings:");
+    File settingsFile = SD.open(settingsFilepath);
+    defaultBpm = settingsFile.readStringUntil('\n').trim().toInt();
+    defaultLoopLength = settingsFile.readStringUntil('\n').trim().toInt(); 
+    Serial.printf("Bpm: %d, LoopLength: %d\n", defaultBpm, defaultLoopLength);
+    settingsFile.close();
+  } else {
+    Serial.println("Error: Cannot access default settings. Attempting to create directory");
+    updateMetadata();
+  }
+}
+
 int FileClass::getSessionOverview(Session **sessionArray) {
   // Scan SD card and return a pointer to an array of every existing session in order
   Serial.println("Running getSessionOverview...");
@@ -758,6 +779,34 @@ Session* FileClass::getSession(int Num) {
     }
   metaFile.close();
   return session;
+}
+
+void FileClass::setDefaultBpm(int Bpm) {
+  defaultBpm = Bpm;
+  updateMetadata();
+}
+
+
+void FileClass::setDefaultLoopLength(int LoopLength){
+  defaultLoopLength = LoopLength;
+  updateMetadata();
+}
+
+void FileClass::updateMetadata() {
+  if (SD.exists(settingsFilepath)) {
+    SD.remove(settingsFilepath);
+    Serial.println("Updating global settings");
+  } else {
+    Serial.println("Initializing global settings");
+  }
+  File dataFile = SD.open(settingsFilepath, FILE_WRITE);
+  if (dataFile) {
+    dataFile.println(String(defaultBpm)); // bpm
+    dataFile.println(String(defaultLoopLength)); // length
+    dataFile.close();
+  } else {
+    Serial.printf("Error accessing global settings file: %s\n", settingsFilepath);
+  } 
 }
 
 
@@ -1310,6 +1359,8 @@ void updateDisplay() {
       statusBar.play_rec = false;
       drawSelectOption(String(statusBar.bpm), "Set Default BPM");
       if (select_pressed_flag) {
+        fileSystem.setDefaultBpm(statusBar.bpm);
+        Serial.printf("Setting Default BPM: %d\n", statusBar.bpm);
         menu_id = MENU_SETTINGS;
         select_pressed_flag = false;
       }
@@ -1331,6 +1382,8 @@ void updateDisplay() {
       statusBar.play_rec = false;
       drawSelectOption(String(session_length), "Default Loop Length");
       if (select_pressed_flag) {
+        fileSystem.setDefaultLoopLength(session_length);
+        Serial.printf("Setting Default Loop Length: %d\n", session_length);
         menu_id = MENU_SETTINGS;
         select_pressed_flag = false;
       }
@@ -1812,6 +1865,11 @@ void setup() {
       delay(500);
     }
   }
+
+  // Initializing default settings
+  fileSystem.initFileClass();
+  BPM_encoderPos = fileSystem.defaultBpm;
+  session_length = fileSystem.defaultLoopLength;
 
   // Track Mixer
   mixer1.gain(0, 0.5); // Track 1
