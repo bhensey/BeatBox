@@ -102,6 +102,9 @@ int mode = 0;
 
 #define MAX_SESSIONS  99
 
+#define MAX(a,b) ((a) > (b) ? a : b)
+#define MIN(a,b) ((a) < (b) ? a : b)
+
 // Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
 #define OLED_RESET     5 // Reset pin # (or -1 if sharing Arduino reset pin)
 
@@ -333,9 +336,6 @@ int findNewTrack() {
     return -1;
   }
 }
-
-#define MAX(a,b) ((a) > (b) ? a : b)
-#define MIN(a,b) ((a) < (b) ? a : b)
 
 void playSession() {
   session_duration = 0;
@@ -593,7 +593,7 @@ void sendBeat() {
 void recordISR() {
   if(continueRecording_enable) {
      continueRecording();
-  } 
+  }
 }
 
 void changeBPM() {
@@ -1850,7 +1850,7 @@ void loopISR() {
 // SETUP AND LOOP FUNCTIONS
 void setup() {
   Serial.begin(9600);
-  while (!Serial);
+//  while (!Serial);
 
   AudioMemory(60); // Memory for all audio funcitons especially recording buffer
   sgtl5000_1.enable();
