@@ -109,7 +109,9 @@ int mode = 0;
 #define OLED_RESET     5 // Reset pin # (or -1 if sharing Arduino reset pin)
 
 
-// Data Structures
+/* 
+ * ************************************* Data Structures ************************************ 
+ */
 struct date {
   int hour;
   int minute;
@@ -177,7 +179,9 @@ struct globalConfig {
 };
 
 
-// Global Variables
+/* 
+ * ************************************* Global Variables ************************************* 
+ */
 const int leftButton = 16;      // the number of the left button pin
 const int rightButton = 15;     // the number of the right button pin
 const int selectButton = 17;    // the number of the select button pin
@@ -226,7 +230,9 @@ Session* sessions[MAX_SESSIONS]; // empty list of session pointers
 
 Session* current_session;
 
-// menu selection global variables
+/* 
+ *  ************************************* menu selection global variables *************************************
+ */
 int selected_home_option = 0;
 int selected_setting = 1;
 int selected_session = 0;
@@ -286,7 +292,9 @@ uint16_t lead_in_beats = 4;
 FileClass fileSystem;
 
 
-// CORE FUNCTIONS
+/* 
+ *  ************************************* CORE FUNCTIONS *************************************
+ */
 int findNewSession() {
   int newSessionNum = -1;
   if (num_sessions < MAX_SESSIONS) {
@@ -403,10 +411,6 @@ void startRecording() {
 //    Serial.println("Removing " + String(frec.name()));
     SD.remove(file_path);
   }
-//  Serial.println("Starting to record");
-//  for(int i = 0; i < 50; i++) {
-//    Serial.print(file_path[i]);
-//  }
   frec = SD.open(file_path, FILE_WRITE);
   
   if (frec) {
@@ -474,9 +478,6 @@ void cancelRecording() {
 
 void enterSetting(int selected_setting) {
   switch(selected_setting) {
-//    case(BEAT_SOUND): {
-//      break;
-//    }
     case(DEFAULT_BPM): {
       menu_id = MENU_SET_DEF_BPM;
       break;
@@ -491,7 +492,18 @@ void enterSetting(int selected_setting) {
   }
 }
 
-// Interrupt Service Routines
+/*
+ * ************************************* INTERRUPT SERVICE ROUTINES *************************************
+ */
+void loopISR() {
+  if(session_playing && millis() > (start_time + session_duration)) {
+    playSession();
+  }
+  if(track_playing && millis() > (start_time + session_duration)) {
+    playTrack();
+  }
+}
+ 
 void debounce_normal(bool &flag, String message) {
   unsigned long interrupt_time = millis();
   if (interrupt_time - last_interrupt_time > INTERRUPT_THRESHOLD)
@@ -572,21 +584,6 @@ void sendBeat() {
       digitalWrite(recordingLED, LOW);
     }
   }
-//  if (track_playing && beat_LED_enable) {
-//    if (play_count >= session_length) {
-//      // loop track
-//      stopTrack();
-//      playTrack();
-//      play_count = 0;
-//    }
-//    if (pendingTrackPlay) {
-//      playTrack();
-//      play_count = 0;
-//      pendingTrackPlay = false;
-//    }
-//    play_count++;
-//  }
-
   beat_LED_enable = !beat_LED_enable;
 }
 
@@ -626,7 +623,7 @@ void hapticButton_ISR() {
   debounce_toggle(haptic_enable, hapticLED, "Haptic button pressed");
 }
 
-// Interrupt on A changing state
+// Interrupt on change Volume down 
 void changeVOL_DOWN() {
   // debounce
   if ( VOL_rotating ) delay (1);  // wait a little until the bouncing is done
@@ -635,7 +632,6 @@ void changeVOL_DOWN() {
   if ( digitalRead(volPin1) != VOL_A_set ) { // debounce once more
     VOL_A_set = !VOL_A_set;
 
-    // adjust counter + if A leads B
     if ( VOL_A_set && !VOL_B_set )
       VOL_encoderPos += 1;
 
@@ -643,12 +639,12 @@ void changeVOL_DOWN() {
   }
 }
 
-// Interrupt on B changing state, same as A above
+// Interrupt on change Volume up
 void changeVOL_UP() {
   if ( VOL_rotating ) delay (1);
   if ( digitalRead(volPin2) != VOL_B_set ) {
     VOL_B_set = !VOL_B_set;
-    //  adjust counter - 1 if B leads A
+
     if ( VOL_B_set && !VOL_A_set )
       VOL_encoderPos -= 1;
 
@@ -656,7 +652,7 @@ void changeVOL_UP() {
   }
 }
 
-// Interrupt on A changing state
+// Interrupt on change BPM down
 void changeBPM_DOWN() {
   // debounce
   if ( BPM_rotating ) delay (1);  // wait a little until the bouncing is done
@@ -665,7 +661,6 @@ void changeBPM_DOWN() {
   if ( digitalRead(BPMPin1) != BPM_A_set ) { // debounce once more
     BPM_A_set = !BPM_A_set;
 
-    // adjust counter + if A leads B
     if ( BPM_A_set && !BPM_B_set )
       BPM_encoderPos += 1;
 
@@ -678,7 +673,6 @@ void changeBPM_UP() {
   if ( BPM_rotating ) delay (1);
   if ( digitalRead(BPMPin2) != BPM_B_set ) {
     BPM_B_set = !BPM_B_set;
-    //  adjust counter - 1 if B leads A
     if ( BPM_B_set && !BPM_A_set )
       BPM_encoderPos -= 1;
 
@@ -701,12 +695,9 @@ void handleStatus() {
   }
 }
 
-
-// File System Functions
-
-//
-// Define FileClass Methods
-//
+/*
+ * ************************************* File Class Implementations *************************************
+ */
 
 FileClass::FileClass() {
   defaultBpm = 85;
@@ -809,10 +800,9 @@ void FileClass::updateMetadata() {
   } 
 }
 
-
-//
-// Define Session Methods
-//
+/* 
+ *  ************************************* Session Implementation *************************************
+ */
 
 Session::Session(int num, int bpm, int len) {
   char tmpFilepath [50];
@@ -922,9 +912,9 @@ void Session::unmuteTrack(int trackNum) {
   updateMetadata();
 }
 
-//
-// DEBUGGING CODE
-//
+/*
+ * ************************************* Debugging Code *************************************
+ */
 void printDirectory(File dir, int numTabs) {
   while (true) {
 
@@ -949,9 +939,9 @@ void printDirectory(File dir, int numTabs) {
 }
 
 
-//
-// HELPER FUNCTIONS
-//
+/*
+ * ************************************* File System Helper Functions *************************************
+ */
 void getTrackFilepath(int trackNumber) {
   // Use global variable selected_session
   // session/track.raw
@@ -1022,7 +1012,9 @@ void updateSessions(int sessionNum) {
 }
 
 
-// DISPLAY FUNCTIONS
+/*
+ * ************************************* DISPLAY FUNCTIONS *************************************
+ */
 void drawStatusBar() {
   display.clearDisplay();
   display.setTextSize(1);
@@ -1230,10 +1222,6 @@ void drawTrackOptions(uint8_t track_no, bool highlight) {
       boxed_text("Delete", 67, display.height() - 12, highlight);
     }
   }
-  //String track = "T" + String(track_no);
-  //boxed_text(track, display.width() / 2 - 10, display.height() - 25, false);
-  //int posn_x = 67;
-  //if (track.length() > 2) posn_x = 74;
   display.display();
 }
 
@@ -1243,7 +1231,6 @@ void drawStorageLimit(String text) {
   display.println("Warning!");
   display.setCursor(2, 13);
   display.println(text);
-//  display.println("Storage Limit Reached\nLess than 100MB free.\nDelete or export\ncontent.");
   display.drawRect(0, 11, 128, 50, WHITE);
   display.display();
 }
@@ -1272,6 +1259,10 @@ void areYouSure(bool yes) {
   display.display();
 }
 
+
+/*
+ * ************************************* PRIMARY SCREEN UPDATE PROCESSING FUNCTION *************************************
+ */
 void updateDisplay() {
   drawStatusBar();
   switch (menu_id) {
@@ -1835,22 +1826,11 @@ void updateDisplay() {
   }
 }
 
-void loopISR() {
-  if(session_playing && millis() > (start_time + session_duration)) {
-    //stopSession();
-    playSession();
-  }
-  if(track_playing && millis() > (start_time + session_duration)) {
-    //stopTrack();
-    playTrack();
-  }
-}
-
-
-// SETUP AND LOOP FUNCTIONS
+/*
+ * ******************************************** ARDUINO SETUP AND LOOP FUNCTIONS ********************************************
+ */
 void setup() {
   Serial.begin(9600);
-//  while (!Serial);
 
   AudioMemory(60); // Memory for all audio funcitons especially recording buffer
   sgtl5000_1.enable();
